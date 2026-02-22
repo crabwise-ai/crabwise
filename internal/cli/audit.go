@@ -116,7 +116,9 @@ func verifyIntegrity(client *ipc.Client) error {
 		Total    int    `json:"total"`
 		BrokenAt string `json:"broken_at"`
 	}
-	json.Unmarshal(result, &v)
+	if err := json.Unmarshal(result, &v); err != nil {
+		return fmt.Errorf("parse verify result: %w", err)
+	}
 
 	if v.Valid {
 		fmt.Printf("Hash chain valid (%d events)\n", v.Total)

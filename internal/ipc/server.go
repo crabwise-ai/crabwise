@@ -88,7 +88,7 @@ func (s *Server) Start() error {
 	}
 
 	if err := os.Chmod(s.socketPath, 0600); err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return fmt.Errorf("chmod socket: %w", err)
 	}
 
@@ -106,7 +106,7 @@ func (s *Server) Start() error {
 func (s *Server) Stop() error {
 	close(s.done)
 	if s.listener != nil {
-		s.listener.Close()
+		_ = s.listener.Close()
 	}
 	s.wg.Wait()
 	os.Remove(s.socketPath)
@@ -192,10 +192,13 @@ func (s *Server) handleConn(conn net.Conn) {
 
 		var req Request
 		if err := json.Unmarshal(line, &req); err != nil {
-			s.writeResponse(conn, Response{
+			if err := s.writeResponse(conn, Response{
 				JSONRPC: "2.0",
 				Error:   &RPCError{Code: -32700, Message: "parse error"},
-			})
+			}); err != nil {
+				log.Printf("ipc: write error: %v", err)
+				return
+			}
 			continue
 		}
 
@@ -209,29 +212,38 @@ func (s *Server) handleConn(conn net.Conn) {
 		s.mu.Unlock()
 
 		if !ok {
-			s.writeResponse(conn, Response{
+			if err := s.writeResponse(conn, Response{
 				JSONRPC: "2.0",
 				ID:      req.ID,
 				Error:   &RPCError{Code: -32601, Message: "method not found"},
-			})
+			}); err != nil {
+				log.Printf("ipc: write error: %v", err)
+				return
+			}
 			continue
 		}
 
 		result, err := handler(req.Params)
 		if err != nil {
-			s.writeResponse(conn, Response{
+			if err := s.writeResponse(conn, Response{
 				JSONRPC: "2.0",
 				ID:      req.ID,
 				Error:   &RPCError{Code: -32000, Message: err.Error()},
-			})
+			}); err != nil {
+				log.Printf("ipc: write error: %v", err)
+				return
+			}
 			continue
 		}
 
-		s.writeResponse(conn, Response{
+		if err := s.writeResponse(conn, Response{
 			JSONRPC: "2.0",
 			ID:      req.ID,
 			Result:  result,
-		})
+		}); err != nil {
+			log.Printf("ipc: write error: %v", err)
+			return
+		}
 	}
 }
 
@@ -241,20 +253,25 @@ func (s *Server) handleSubscribe(conn net.Conn, req Request, connDone chan struc
 	s.mu.Unlock()
 
 	if handler == nil {
-		s.writeResponse(conn, Response{
+		if err := s.writeResponse(conn, Response{
 			JSONRPC: "2.0",
 			ID:      req.ID,
 			Error:   &RPCError{Code: -32601, Message: "subscribe not configured"},
-		})
+		}); err != nil {
+			log.Printf("ipc: write error: %v", err)
+		}
 		return
 	}
 
 	// Send ack
-	s.writeResponse(conn, Response{
+	if err := s.writeResponse(conn, Response{
 		JSONRPC: "2.0",
 		ID:      req.ID,
 		Result:  map[string]interface{}{"ok": true},
-	})
+	}); err != nil {
+		log.Printf("ipc: write error: %v", err)
+		return
+	}
 
 	sendFn := func(method string, data interface{}) error {
 		notif := Notification{
@@ -285,14 +302,18 @@ func (s *Server) handleSubscribe(conn net.Conn, req Request, connDone chan struc
 			case <-merged:
 				return
 			case <-ticker.C:
-				sendFn("audit.heartbeat", map[string]string{
+				if err := sendFn("audit.heartbeat", map[string]string{
 					"ts": time.Now().UTC().Format(time.RFC3339),
-				})
+				}); err != nil {
+					return
+				}
 			}
 		}
 	}()
 
-	handler(req.Params, sendFn, merged)
+	if err := handler(req.Params, sendFn, merged); err != nil {
+		log.Printf("ipc: subscribe handler: %v", err)
+	}
 }
 
 func (s *Server) writeResponse(conn net.Conn, v interface{}) error {

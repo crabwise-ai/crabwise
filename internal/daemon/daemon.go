@@ -82,7 +82,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err := d.ipcServer.Start(); err != nil {
 		return fmt.Errorf("ipc server: %w", err)
 	}
-	defer d.ipcServer.Stop()
+	defer func() {
+		if err := d.ipcServer.Stop(); err != nil {
+			log.Printf("daemon: ipc server stop: %v", err)
+		}
+	}()
 
 	// Log watcher adapter
 	d.watcher = logwatcher.New(
@@ -94,7 +98,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 		if err := d.watcher.Start(ctx, d.eventCh); err != nil {
 			log.Printf("daemon: log watcher start error: %v", err)
 		}
-		defer d.watcher.Stop()
+		defer func() {
+			if err := d.watcher.Stop(); err != nil {
+				log.Printf("daemon: watcher stop: %v", err)
+			}
+		}()
 	}
 
 	// Event forwarder: eventCh → queue
@@ -185,7 +193,9 @@ func (d *Daemon) registerIPC() {
 				Limit   int    `json:"limit"`
 				Offset  int    `json:"offset"`
 			}
-			json.Unmarshal(params, &f)
+			if err := json.Unmarshal(params, &f); err != nil {
+				return nil, fmt.Errorf("parse params: %w", err)
+			}
 			if f.Since != "" {
 				t, _ := time.Parse(time.RFC3339, f.Since)
 				filter.Since = &t
