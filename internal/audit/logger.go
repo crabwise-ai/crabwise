@@ -142,21 +142,47 @@ func (l *Logger) serializerLoop(ctx context.Context) {
 		processEvent(e)
 	}
 
+	// drainControl processes all pending control channel events.
+	// Called on every iteration to prevent starvation when main channel is hot.
+	drainControl := func() {
+		for {
+			select {
+			case oe, ok := <-l.q.Control():
+				if !ok {
+					return
+				}
+				processOverflow(oe)
+			default:
+				return
+			}
+		}
+	}
+
 	for {
+		// Always drain control channel first — overflow events must not be starved
+		drainControl()
+
 		select {
 		case <-ctx.Done():
-			// Drain remaining
+			// Drain both channels on shutdown
 			for {
 				select {
 				case item, ok := <-l.q.Receive():
 					if !ok {
+						drainControl()
 						flush()
 						return
 					}
 					if e, ok := item.(*AuditEvent); ok {
 						processEvent(e)
 					}
+				case oe, ok := <-l.q.Control():
+					if !ok {
+						continue
+					}
+					processOverflow(oe)
 				default:
+					drainControl()
 					flush()
 					return
 				}

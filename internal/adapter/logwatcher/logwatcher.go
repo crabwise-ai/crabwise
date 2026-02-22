@@ -216,15 +216,15 @@ func (w *LogWatcher) tailFile(path string, events chan<- *audit.AuditEvent) {
 		}
 
 		for _, evt := range parsed {
+			// Tag with source file/offset for atomic commit with events
+			evt.SourceFile = path
+			evt.SourceOffset = newOffset
+
 			select {
 			case events <- evt:
 			default:
 				// Queue full, drop
 			}
 		}
-	}
-
-	if newOffset > offset {
-		w.offsets.SetFileOffset(path, newOffset)
 	}
 }

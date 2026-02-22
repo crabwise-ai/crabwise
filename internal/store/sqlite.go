@@ -90,6 +90,9 @@ func (s *Store) InsertEvents(events []*audit.AuditEvent) error {
 	}
 	defer stmt.Close()
 
+	// Collect file offsets to update atomically with event inserts
+	offsets := make(map[string]int64)
+
 	for _, e := range events {
 		redacted := 0
 		if e.Redacted {
@@ -105,6 +108,23 @@ func (s *Store) InsertEvents(events []*audit.AuditEvent) error {
 		)
 		if err != nil {
 			return fmt.Errorf("insert event %s: %w", e.ID, err)
+		}
+
+		// Track highest offset per source file
+		if e.SourceFile != "" && e.SourceOffset > offsets[e.SourceFile] {
+			offsets[e.SourceFile] = e.SourceOffset
+		}
+	}
+
+	// Commit file offsets in same transaction — atomic with event inserts
+	for path, offset := range offsets {
+		_, err := tx.Exec(
+			`INSERT INTO file_offsets (file_path, offset, updated_at) VALUES (?, ?, ?)
+			 ON CONFLICT(file_path) DO UPDATE SET offset = excluded.offset, updated_at = excluded.updated_at`,
+			path, offset, time.Now().UTC().Format(time.RFC3339Nano),
+		)
+		if err != nil {
+			return fmt.Errorf("update offset %s: %w", path, err)
 		}
 	}
 
