@@ -34,7 +34,9 @@ func newStatusCmd() *cobra.Command {
 			}
 
 			var status map[string]interface{}
-			json.Unmarshal(result, &status)
+			if err := json.Unmarshal(result, &status); err != nil {
+				return fmt.Errorf("parse status: %w", err)
+			}
 
 			fmt.Printf("Status:       running\n")
 			fmt.Printf("Uptime:       %v\n", status["uptime"])

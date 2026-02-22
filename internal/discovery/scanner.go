@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -63,7 +64,7 @@ func ScanLogPaths(logPaths []string) []AgentInfo {
 	seen := make(map[string]bool)
 
 	for _, logPath := range logPaths {
-		filepath.Walk(logPath, func(path string, info os.FileInfo, err error) error {
+		if err := filepath.Walk(logPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() {
 				return nil
 			}
@@ -86,7 +87,9 @@ func ScanLogPaths(logPaths []string) []AgentInfo {
 				DiscoveredAt: time.Now().UTC(),
 			})
 			return nil
-		})
+		}); err != nil {
+			log.Printf("discovery: walk %s: %v", logPath, err)
+		}
 	}
 
 	return agents

@@ -90,7 +90,7 @@ func (w *LogWatcher) CanEnforce() bool {
 }
 
 func (w *LogWatcher) scanAndWatch(dir string, events chan<- *audit.AuditEvent) {
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	if err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -115,7 +115,9 @@ func (w *LogWatcher) scanAndWatch(dir string, events chan<- *audit.AuditEvent) {
 			w.tailFile(path, events)
 		}
 		return nil
-	})
+	}); err != nil {
+		log.Printf("logwatcher: walk %s: %v", dir, err)
+	}
 }
 
 func (w *LogWatcher) watchLoop(ctx context.Context, events chan<- *audit.AuditEvent) {
@@ -134,7 +136,9 @@ func (w *LogWatcher) watchLoop(ctx context.Context, events chan<- *audit.AuditEv
 					continue
 				}
 				if info.IsDir() {
-					w.watcher.Add(event.Name)
+					if err := w.watcher.Add(event.Name); err != nil {
+						log.Printf("logwatcher: watch %s: %v", event.Name, err)
+					}
 					continue
 				}
 				if strings.HasSuffix(event.Name, ".jsonl") {
@@ -206,8 +210,8 @@ func (w *LogWatcher) tailFile(path string, events chan<- *audit.AuditEvent) {
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB max line
 
 	var (
-		curOffset = offset // byte offset of current line start
-		newOffset = offset // running offset (end of last read line)
+		curOffset int64          // byte offset of current line start
+		newOffset = offset       // running offset (end of last read line)
 		lastEvt   *audit.AuditEvent
 	)
 

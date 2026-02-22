@@ -7,3 +7,29 @@ linters:
     - misspell
     - unconvert
     - errorlint
+  settings:
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (*database/sql.DB).Close
+        - (*database/sql.Tx).Rollback
+        - (*database/sql.Stmt).Close
+        - (*database/sql.Rows).Close
+        - (*net.UnixListener).Close
+        - (net.Conn).Close
+        - (net.Listener).Close
+        - (*github.com/crabwise-ai/crabwise/internal/ipc.Client).Close
+        - (*github.com/crabwise-ai/crabwise/internal/store.Store).Close
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Printf
+        - fmt.Println
+        - os.Remove
+        - os.RemoveAll
+        - (*text/tabwriter.Writer).Flush
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
