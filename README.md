@@ -4,26 +4,25 @@ Local-first daemon + CLI that monitors AI agent activity. Watches Claude Code se
 
 ## Install
 
-### From source
-
-Requires Go 1.25+.
-
 ```bash
-git clone https://github.com/crabwise-ai/crabwise.git
-cd crabwise
-make build
+curl -sSfL https://raw.githubusercontent.com/crabwise-ai/crabwise/main/install.sh | bash
 ```
 
-Binary lands in `bin/crabwise`. Move it to your PATH:
+Or pin a version:
 
 ```bash
-sudo cp bin/crabwise /usr/local/bin/
+curl -sSfL https://raw.githubusercontent.com/crabwise-ai/crabwise/main/install.sh | VERSION=0.1.0-alpha.1 bash
 ```
 
-### Go install
+### Other methods
 
 ```bash
+# go install
 go install github.com/crabwise-ai/crabwise/cmd/crabwise@latest
+
+# from source (requires Go 1.25+)
+git clone https://github.com/crabwise-ai/crabwise.git && cd crabwise && make build
+sudo cp bin/crabwise /usr/local/bin/
 ```
 
 ## Quick Start
