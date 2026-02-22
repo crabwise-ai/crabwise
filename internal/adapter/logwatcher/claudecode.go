@@ -1,6 +1,7 @@
 package logwatcher
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -8,8 +9,18 @@ import (
 	"time"
 
 	"github.com/crabwise-ai/crabwise/internal/audit"
-	"github.com/google/uuid"
 )
+
+// uuid is no longer used — file-sourced events use deterministic IDs.
+// Non-file events (overflow, etc.) are created in other packages.
+
+// deterministicID generates a stable event ID from source file and byte offset.
+// This ensures INSERT OR IGNORE deduplicates on restart after partial flush.
+// suffix disambiguates multiple events from the same line (e.g. multiple tool_use blocks).
+func deterministicID(sourceFile string, lineOffset int64, suffix int) string {
+	h := sha256.Sum256([]byte(fmt.Sprintf("%s:%d:%d", sourceFile, lineOffset, suffix)))
+	return fmt.Sprintf("%x", h[:12])
+}
 
 const ParserVersion = "cc-parser-v0.1"
 
@@ -64,7 +75,9 @@ type ParseResult struct {
 }
 
 // ParseLine parses a single JSONL line into audit events.
-func ParseLine(line []byte, sessionFile string) ([]*audit.AuditEvent, error) {
+// lineOffset is the byte offset of the start of this line in the source file,
+// used for deterministic event IDs.
+func ParseLine(line []byte, sessionFile string, lineOffset int64) ([]*audit.AuditEvent, error) {
 	if len(line) == 0 {
 		return nil, nil
 	}
@@ -72,46 +85,48 @@ func ParseLine(line []byte, sessionFile string) ([]*audit.AuditEvent, error) {
 	var rec CCRecord
 	if err := json.Unmarshal(line, &rec); err != nil {
 		// Malformed JSON — emit unknown event
-		return []*audit.AuditEvent{unknownEvent(sessionFile, line, err)}, nil
+		return []*audit.AuditEvent{unknownEvent(sessionFile, line, err, lineOffset)}, nil
 	}
 	rec.rawBytes = line
 
 	switch rec.Type {
 	case "assistant":
-		return parseAssistant(&rec, sessionFile)
+		return parseAssistant(&rec, sessionFile, lineOffset)
 	case "user":
 		return parseUser(&rec, sessionFile)
 	case "system":
-		return []*audit.AuditEvent{systemEvent(&rec, sessionFile)}, nil
+		return []*audit.AuditEvent{systemEvent(&rec, sessionFile, lineOffset)}, nil
 	case "queue-operation", "file-history-snapshot", "summary":
 		return nil, nil // skip
 	case "":
-		return []*audit.AuditEvent{unknownEvent(sessionFile, line, fmt.Errorf("empty type"))}, nil
+		return []*audit.AuditEvent{unknownEvent(sessionFile, line, fmt.Errorf("empty type"), lineOffset)}, nil
 	default:
-		return []*audit.AuditEvent{unknownEvent(sessionFile, line, fmt.Errorf("unknown type: %s", rec.Type))}, nil
+		return []*audit.AuditEvent{unknownEvent(sessionFile, line, fmt.Errorf("unknown type: %s", rec.Type), lineOffset)}, nil
 	}
 }
 
-func parseAssistant(rec *CCRecord, sessionFile string) ([]*audit.AuditEvent, error) {
+func parseAssistant(rec *CCRecord, sessionFile string, lineOffset int64) ([]*audit.AuditEvent, error) {
 	var msg CCMessage
 	if err := json.Unmarshal(rec.Message, &msg); err != nil {
-		return []*audit.AuditEvent{unknownEvent(sessionFile, rec.rawBytes, err)}, nil
+		return []*audit.AuditEvent{unknownEvent(sessionFile, rec.rawBytes, err, lineOffset)}, nil
 	}
 
 	var events []*audit.AuditEvent
 
 	// Parse content blocks for tool_use
 	blocks := parseContentBlocks(msg.Content)
+	toolIdx := 0
 	for _, block := range blocks {
 		if block.Type == "tool_use" {
-			evt := toolCallEvent(rec, &msg, &block, sessionFile)
+			evt := toolCallEvent(rec, &msg, &block, sessionFile, lineOffset, toolIdx)
 			events = append(events, evt)
+			toolIdx++
 		}
 	}
 
 	// If message has usage info and no tool calls, it's an AI request
 	if msg.Usage != nil && len(events) == 0 {
-		evt := aiRequestEvent(rec, &msg, sessionFile)
+		evt := aiRequestEvent(rec, &msg, sessionFile, lineOffset)
 		events = append(events, evt)
 	}
 
@@ -153,7 +168,7 @@ func parseContentBlocks(content interface{}) []ContentBlock {
 	return blocks
 }
 
-func toolCallEvent(rec *CCRecord, msg *CCMessage, block *ContentBlock, sessionFile string) *audit.AuditEvent {
+func toolCallEvent(rec *CCRecord, msg *CCMessage, block *ContentBlock, sessionFile string, lineOffset int64, toolIdx int) *audit.AuditEvent {
 	actionType := classifyTool(block.Name)
 
 	var args string
@@ -165,7 +180,7 @@ func toolCallEvent(rec *CCRecord, msg *CCMessage, block *ContentBlock, sessionFi
 	sessionID := extractSessionIDFromFile(sessionFile)
 
 	return &audit.AuditEvent{
-		ID:            uuid.New().String(),
+		ID:            deterministicID(sessionFile, lineOffset, toolIdx),
 		Timestamp:     ts,
 		AgentID:       "claude-code",
 		ActionType:    actionType,
@@ -181,12 +196,12 @@ func toolCallEvent(rec *CCRecord, msg *CCMessage, block *ContentBlock, sessionFi
 	}
 }
 
-func aiRequestEvent(rec *CCRecord, msg *CCMessage, sessionFile string) *audit.AuditEvent {
+func aiRequestEvent(rec *CCRecord, msg *CCMessage, sessionFile string, lineOffset int64) *audit.AuditEvent {
 	ts := parseTimestamp(rec.Timestamp)
 	sessionID := extractSessionIDFromFile(sessionFile)
 
 	return &audit.AuditEvent{
-		ID:            uuid.New().String(),
+		ID:            deterministicID(sessionFile, lineOffset, 0),
 		Timestamp:     ts,
 		AgentID:       "claude-code",
 		ActionType:    audit.ActionAIRequest,
@@ -203,12 +218,12 @@ func aiRequestEvent(rec *CCRecord, msg *CCMessage, sessionFile string) *audit.Au
 	}
 }
 
-func systemEvent(rec *CCRecord, sessionFile string) *audit.AuditEvent {
+func systemEvent(rec *CCRecord, sessionFile string, lineOffset int64) *audit.AuditEvent {
 	ts := parseTimestamp(rec.Timestamp)
 	sessionID := extractSessionIDFromFile(sessionFile)
 
 	return &audit.AuditEvent{
-		ID:            uuid.New().String(),
+		ID:            deterministicID(sessionFile, lineOffset, 0),
 		Timestamp:     ts,
 		AgentID:       "claude-code",
 		ActionType:    audit.ActionSystem,
@@ -221,9 +236,9 @@ func systemEvent(rec *CCRecord, sessionFile string) *audit.AuditEvent {
 	}
 }
 
-func unknownEvent(sessionFile string, rawBytes []byte, parseErr error) *audit.AuditEvent {
+func unknownEvent(sessionFile string, rawBytes []byte, parseErr error, lineOffset int64) *audit.AuditEvent {
 	return &audit.AuditEvent{
-		ID:            uuid.New().String(),
+		ID:            deterministicID(sessionFile, lineOffset, 0),
 		Timestamp:     time.Now().UTC(),
 		AgentID:       "claude-code",
 		ActionType:    audit.ActionUnknown,
