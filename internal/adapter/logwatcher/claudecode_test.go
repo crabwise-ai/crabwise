@@ -11,7 +11,7 @@ import (
 func TestParseLine_ToolUse(t *testing.T) {
 	line := `{"type":"assistant","sessionId":"sess-001","cwd":"/home/user","message":{"model":"claude-sonnet-4-5-20250929","role":"assistant","content":[{"type":"tool_use","id":"toolu_001","name":"Read","input":{"file_path":"/tmp/test.go"}}],"usage":{"input_tokens":100,"output_tokens":10}},"uuid":"uuid-001","timestamp":"2026-02-22T14:00:00.000Z"}`
 
-	events, err := ParseLine([]byte(line), "/tmp/session.jsonl")
+	events, err := ParseLine([]byte(line), "/tmp/session.jsonl", 0)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestParseLine_ToolUse(t *testing.T) {
 func TestParseLine_BashCommand(t *testing.T) {
 	line := `{"type":"assistant","sessionId":"sess-001","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_002","name":"Bash","input":{"command":"go test ./..."}}],"usage":{"input_tokens":50,"output_tokens":20}},"uuid":"uuid-002","timestamp":"2026-02-22T14:00:00.000Z"}`
 
-	events, _ := ParseLine([]byte(line), "/tmp/session.jsonl")
+	events, _ := ParseLine([]byte(line), "/tmp/session.jsonl", 0)
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
@@ -49,7 +49,7 @@ func TestParseLine_BashCommand(t *testing.T) {
 func TestParseLine_AIRequest(t *testing.T) {
 	line := `{"type":"assistant","sessionId":"sess-001","message":{"model":"claude-sonnet-4-5-20250929","role":"assistant","content":[{"type":"text","text":"hello"}],"usage":{"input_tokens":500,"output_tokens":100}},"uuid":"uuid-003","timestamp":"2026-02-22T14:00:00.000Z"}`
 
-	events, _ := ParseLine([]byte(line), "/tmp/session.jsonl")
+	events, _ := ParseLine([]byte(line), "/tmp/session.jsonl", 0)
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
@@ -66,7 +66,7 @@ func TestParseLine_SkipTypes(t *testing.T) {
 	}
 
 	for _, line := range skips {
-		events, err := ParseLine([]byte(line), "/tmp/session.jsonl")
+		events, err := ParseLine([]byte(line), "/tmp/session.jsonl", 0)
 		if err != nil {
 			t.Fatalf("unexpected error for %s: %v", line[:30], err)
 		}
@@ -77,7 +77,7 @@ func TestParseLine_SkipTypes(t *testing.T) {
 }
 
 func TestParseLine_MalformedJSON(t *testing.T) {
-	events, err := ParseLine([]byte("not valid json"), "/tmp/session.jsonl")
+	events, err := ParseLine([]byte("not valid json"), "/tmp/session.jsonl", 0)
 	if err != nil {
 		t.Fatalf("should not return error, got %v", err)
 	}
@@ -91,7 +91,7 @@ func TestParseLine_MalformedJSON(t *testing.T) {
 
 func TestParseLine_UnknownType(t *testing.T) {
 	line := `{"type":"future_record_type","newField":"value","timestamp":"2026-02-22T14:00:00.000Z"}`
-	events, _ := ParseLine([]byte(line), "/tmp/session.jsonl")
+	events, _ := ParseLine([]byte(line), "/tmp/session.jsonl", 0)
 	if len(events) != 1 {
 		t.Fatalf("expected 1 unknown event, got %d", len(events))
 	}
@@ -101,7 +101,7 @@ func TestParseLine_UnknownType(t *testing.T) {
 }
 
 func TestParseLine_EmptyLine(t *testing.T) {
-	events, err := ParseLine([]byte(""), "/tmp/session.jsonl")
+	events, err := ParseLine([]byte(""), "/tmp/session.jsonl", 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestParseLine_EmptyLine(t *testing.T) {
 func TestParseLine_UserToolResult_Skipped(t *testing.T) {
 	line := `{"type":"user","sessionId":"sess-001","message":{"role":"user","content":[{"tool_use_id":"toolu_001","type":"tool_result","content":"ok"}]},"uuid":"uuid-r01","timestamp":"2026-02-22T14:00:00.000Z","toolUseResult":"success"}`
 
-	events, _ := ParseLine([]byte(line), "/tmp/session.jsonl")
+	events, _ := ParseLine([]byte(line), "/tmp/session.jsonl", 0)
 	if len(events) != 0 {
 		t.Fatalf("expected tool result to be skipped, got %d events", len(events))
 	}
@@ -132,7 +132,7 @@ func TestParseFixture_Basic(t *testing.T) {
 			continue
 		}
 		result.Total++
-		events, _ := ParseLine([]byte(line), "session-basic.jsonl")
+		events, _ := ParseLine([]byte(line), "session-basic.jsonl", 0)
 		if events == nil {
 			result.Skipped++
 		} else {
@@ -180,7 +180,7 @@ func TestParseFixture_Malformed_NoPanic(t *testing.T) {
 			continue
 		}
 		result.Total++
-		events, _ := ParseLine([]byte(line), "session-malformed.jsonl")
+		events, _ := ParseLine([]byte(line), "session-malformed.jsonl", 0)
 		if events != nil {
 			for _, e := range events {
 				if e.ActionType == audit.ActionUnknown {
@@ -210,7 +210,7 @@ func TestParseFixture_Empty(t *testing.T) {
 			continue
 		}
 		total++
-		ParseLine([]byte(line), "session-empty.jsonl") // should not panic
+		ParseLine([]byte(line), "session-empty.jsonl", 0) // should not panic
 	}
 }
 

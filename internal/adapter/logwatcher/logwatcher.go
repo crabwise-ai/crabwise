@@ -205,26 +205,44 @@ func (w *LogWatcher) tailFile(path string, events chan<- *audit.AuditEvent) {
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB max line
 
-	var newOffset int64 = offset
+	var (
+		curOffset = offset    // byte offset of current line start
+		newOffset = offset    // running offset (end of last read line)
+		allEvents []*audit.AuditEvent
+	)
+
 	for scanner.Scan() {
 		line := scanner.Bytes()
+		curOffset = newOffset
 		newOffset += int64(len(line)) + 1 // +1 for newline
 
-		parsed, err := ParseLine(line, path)
+		parsed, err := ParseLine(line, path, curOffset)
 		if err != nil {
 			continue
 		}
 
 		for _, evt := range parsed {
-			// Tag with source file/offset for atomic commit with events
+			// Tag with source file and per-line offset for atomic commit
 			evt.SourceFile = path
-			evt.SourceOffset = newOffset
+			evt.SourceOffset = newOffset // offset after this line
+			allEvents = append(allEvents, evt)
+		}
+	}
 
+	if len(allEvents) > 0 {
+		// Last event carries end-of-scan offset to advance past trailing skipped lines
+		allEvents[len(allEvents)-1].SourceOffset = newOffset
+
+		for _, evt := range allEvents {
 			select {
 			case events <- evt:
 			default:
 				// Queue full, drop
 			}
 		}
+	} else if newOffset > offset {
+		// No events produced but lines were read (all skipped types).
+		// Safe to advance offset directly — no events to be inconsistent with.
+		w.offsets.SetFileOffset(path, newOffset)
 	}
 }
