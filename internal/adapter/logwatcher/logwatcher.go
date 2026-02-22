@@ -206,9 +206,9 @@ func (w *LogWatcher) tailFile(path string, events chan<- *audit.AuditEvent) {
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB max line
 
 	var (
-		curOffset = offset    // byte offset of current line start
-		newOffset = offset    // running offset (end of last read line)
-		allEvents []*audit.AuditEvent
+		curOffset = offset // byte offset of current line start
+		newOffset = offset // running offset (end of last read line)
+		lastEvt   *audit.AuditEvent
 	)
 
 	for scanner.Scan() {
@@ -222,27 +222,34 @@ func (w *LogWatcher) tailFile(path string, events chan<- *audit.AuditEvent) {
 		}
 
 		for _, evt := range parsed {
-			// Tag with source file and per-line offset for atomic commit
 			evt.SourceFile = path
 			evt.SourceOffset = newOffset // offset after this line
-			allEvents = append(allEvents, evt)
+
+			// Stream previous event immediately, hold current as potential last
+			if lastEvt != nil {
+				select {
+				case events <- lastEvt:
+				default:
+					// Queue full, drop
+				}
+			}
+			lastEvt = evt
 		}
 	}
 
-	if len(allEvents) > 0 {
+	if lastEvt != nil {
 		// Last event carries end-of-scan offset to advance past trailing skipped lines
-		allEvents[len(allEvents)-1].SourceOffset = newOffset
-
-		for _, evt := range allEvents {
-			select {
-			case events <- evt:
-			default:
-				// Queue full, drop
-			}
+		lastEvt.SourceOffset = newOffset
+		select {
+		case events <- lastEvt:
+		default:
+			// Queue full, drop
 		}
 	} else if newOffset > offset {
 		// No events produced but lines were read (all skipped types).
 		// Safe to advance offset directly — no events to be inconsistent with.
-		w.offsets.SetFileOffset(path, newOffset)
+		if err := w.offsets.SetFileOffset(path, newOffset); err != nil {
+			log.Printf("logwatcher: set offset for %s: %v", path, err)
+		}
 	}
 }

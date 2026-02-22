@@ -14,12 +14,16 @@ import (
 // uuid is no longer used — file-sourced events use deterministic IDs.
 // Non-file events (overflow, etc.) are created in other packages.
 
-// deterministicID generates a stable event ID from source file and byte offset.
+// deterministicID generates a stable event ID from source file, byte offset, and line content.
 // This ensures INSERT OR IGNORE deduplicates on restart after partial flush.
 // suffix disambiguates multiple events from the same line (e.g. multiple tool_use blocks).
-func deterministicID(sourceFile string, lineOffset int64, suffix int) string {
-	h := sha256.Sum256([]byte(fmt.Sprintf("%s:%d:%d", sourceFile, lineOffset, suffix)))
-	return fmt.Sprintf("%x", h[:12])
+// lineContent is included so truncation/rotation (which resets offset to 0) doesn't
+// collide with old IDs — different content at the same offset produces a different ID.
+func deterministicID(sourceFile string, lineOffset int64, suffix int, lineContent []byte) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "%s:%d:%d:", sourceFile, lineOffset, suffix)
+	h.Write(lineContent)
+	return fmt.Sprintf("%x", h.Sum(nil)[:12])
 }
 
 const ParserVersion = "cc-parser-v0.1"
@@ -180,7 +184,7 @@ func toolCallEvent(rec *CCRecord, msg *CCMessage, block *ContentBlock, sessionFi
 	sessionID := extractSessionIDFromFile(sessionFile)
 
 	return &audit.AuditEvent{
-		ID:            deterministicID(sessionFile, lineOffset, toolIdx),
+		ID:            deterministicID(sessionFile, lineOffset, toolIdx, rec.rawBytes),
 		Timestamp:     ts,
 		AgentID:       "claude-code",
 		ActionType:    actionType,
@@ -201,7 +205,7 @@ func aiRequestEvent(rec *CCRecord, msg *CCMessage, sessionFile string, lineOffse
 	sessionID := extractSessionIDFromFile(sessionFile)
 
 	return &audit.AuditEvent{
-		ID:            deterministicID(sessionFile, lineOffset, 0),
+		ID:            deterministicID(sessionFile, lineOffset, 0, rec.rawBytes),
 		Timestamp:     ts,
 		AgentID:       "claude-code",
 		ActionType:    audit.ActionAIRequest,
@@ -223,7 +227,7 @@ func systemEvent(rec *CCRecord, sessionFile string, lineOffset int64) *audit.Aud
 	sessionID := extractSessionIDFromFile(sessionFile)
 
 	return &audit.AuditEvent{
-		ID:            deterministicID(sessionFile, lineOffset, 0),
+		ID:            deterministicID(sessionFile, lineOffset, 0, rec.rawBytes),
 		Timestamp:     ts,
 		AgentID:       "claude-code",
 		ActionType:    audit.ActionSystem,
@@ -238,7 +242,7 @@ func systemEvent(rec *CCRecord, sessionFile string, lineOffset int64) *audit.Aud
 
 func unknownEvent(sessionFile string, rawBytes []byte, parseErr error, lineOffset int64) *audit.AuditEvent {
 	return &audit.AuditEvent{
-		ID:            deterministicID(sessionFile, lineOffset, 0),
+		ID:            deterministicID(sessionFile, lineOffset, 0, rawBytes),
 		Timestamp:     time.Now().UTC(),
 		AgentID:       "claude-code",
 		ActionType:    audit.ActionUnknown,
