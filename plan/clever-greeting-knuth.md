@@ -23,11 +23,13 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 - **Two adapter tiers** — Log Watcher (read-only, Claude Code) + Proxy (enforce, OpenAI-compatible on :9119)
 - **Commandment engine** — YAML rules, regex/glob matching, block/warn enforcement, <2ms p95 eval
 - **IPC** — JSON-RPC 2.0 over Unix socket
-- **Hash chain** — SHA-256, single serializer goroutine, genesis seed
-- **Event queue** — bounded channel (10k), batched SQLite writes, overflow metered
+- **Hash chain** — SHA-256 over full redacted event record, daily epoch anchors for retention-aware verification
+- **Event queue** — bounded channel (10k), batched SQLite writes, default block_with_timeout, overflow metered
+- **Socket auth** — SO_PEERCRED kernel-verified peer credentials + file permissions
 - **OTel GenAI spans** — optional collector, local-first by default
 - **Redaction** — both paths: audit persistence AND proxy egress. Never mutates third-party logs.
-- **Raw payloads** — sidecar `.zst` blobs, GC tied to retention
+- **Raw payloads** — sidecar `.zst` blobs, logical ID ref, 1MB max/500MB quota, hourly GC
+- **Proxy egress redaction** — deterministic order: detect → block|warn → redact-if-allowed → forward
 
 ## Milestones (Vertical Slices)
 
@@ -67,11 +69,16 @@ Each milestone delivers a demo-able user story.
 10. Performance — benchmark suite confirms all SLOs
 11. TUI — `crabwise watch` shows live feed, warnings, queue depth, drop counters
 
-## Unresolved Questions
+## Resolved Questions
 
-1. Go module path — `github.com/crabwise-ai/crabwise`?
-2. CC log format — need to analyze real logs before M0 to validate parser
-3. Cost pricing — hardcoded config acceptable for prototype?
-4. OpenClaw log watcher — needed in prototype or proxy-only?
-5. Systemd user service — installer creates it?
-6. License — MIT confirmed?
+1. Module path: `github.com/crabwise-ai/crabwise`
+2. CC logs: M0 gated on fixture capture + anonymization script
+3. Cost pricing: config-driven static pricing, manual update
+4. OpenClaw: proxy-first only, no log watcher in prototype
+5. Systemd: optional via `crabwise install --service`
+6. License: MIT — single-player open source, team features are future commercial surface
+
+## De-scope Fallback (if week 5 slips)
+
+Defer in order: TUI filters → OTel → install script → arm64 → cost summary view.
+**Never de-scope:** proxy correctness, SSE streaming, block enforcement, audit integrity, redaction.

@@ -20,6 +20,12 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 3. **As a dev**, I get a searchable, exportable audit trail of every agent action — tool calls, file access, commands, AI requests — with cost tracking.
 4. **As a security-conscious dev**, I get warnings when agents access sensitive files and can block destructive commands.
 
+## Architecture Diagrams
+
+- [Technical architecture diagram](./2026-02-22-prototype-technical-architecture-diagram.md)
+- [User flow diagram](./2026-02-22-prototype-user-flow-diagram.md)
+- [Control plane governance diagram](./2026-02-22-prototype-control-plane-governance-diagram.md)
+
 ---
 
 ## Milestones (Vertical Slices)
@@ -41,12 +47,14 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 | IPC | Unix socket (JSON-RPC 2.0), local-user-only permissions |
 | Basic watch | `crabwise watch` — streaming text output (not TUI), live event tail |
 
+**Pre-gate:** CC log fixtures captured + anonymization script run before parser development begins.
+
 **Exit gates:**
 - Daemon starts/stops cleanly for 100 cycles, no orphans
 - CC log events parsed and queryable in audit
 - Hash chain validates end-to-end
 - Zero parse panics on malformed/unknown records (captured via raw_payload)
-- IPC socket permissions enforced (0700 dir, 0600 socket)
+- IPC socket permissions enforced (0700 dir, 0600 socket, SO_PEERCRED verified)
 - `crabwise watch` streams events in real time
 
 ### M1 — Commandment Engine + Warn (Weeks 2-2.5)
@@ -87,7 +95,7 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 | Cost tracking | Configurable per-model pricing, `crabwise audit --cost` |
 | Proxy egress redaction | Redact credential patterns in outbound payloads before upstream |
 | Event queue hardening | Bounded queue, backpressure/drop accounting, `pipeline_overflow` events |
-| Raw payloads | Sidecar `.zst` blobs at `~/.local/share/crabwise/raw/<event-id>.zst` |
+| Raw payloads | Sidecar `.zst` blobs, logical ID ref (no path injection), hard limits enforced |
 
 **Exit gates:**
 - Proxy added latency: p95 < 20ms
@@ -131,6 +139,17 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 | Daemon footprint | RSS < 80MB |
 | Security | Redaction passes on both surfaces; blocked actions never reach upstream |
 
+### SLO Measurement Profile
+
+Benchmarks use this standard profile for reproducibility:
+
+- **Request payload:** 4KB request body, 16KB response body (representative of chat completions)
+- **Concurrency:** 10 concurrent clients for proxy tests
+- **Commandment set:** 20 rules (mix of regex, glob, numeric, list membership)
+- **Event volume:** 100 events/sec sustained for queue/audit tests
+- **Hardware baseline:** 4-core, 8GB RAM Linux (CI runner or equivalent). Report actual hardware in benchmark output.
+- **Measurement:** 10s warmup, 60s measurement window, report p50/p95/p99/max
+
 ---
 
 ## Implementation Specs
@@ -164,20 +183,38 @@ CC logs at `~/.claude/projects/<project-hash>/sessions/<session-id>/` as JSONL. 
 Why JSON-RPC: simple, well-specified, Go libraries exist, human-debuggable with socat.
 
 ```
-Methods:
+Request/Response methods (standard JSON-RPC 2.0):
   status              → {agents, queue_depth, uptime}
   agents.list         → [{id, type, pid, adapter, status}]
   audit.query         → {events, total}  (accepts filters)
-  audit.stream        → server-push events (for watch)
   audit.verify        → {valid, broken_at}
   audit.export        → {events}
   commandments.list   → [{name, enforcement, enabled}]
   commandments.add    → {ok, errors}
   commandments.test   → {matches}
   commandments.reload → {ok}
+
+Subscription method (for `crabwise watch`):
+  audit.subscribe     → long-lived NDJSON stream over the socket connection
+                         Client sends JSON-RPC request with method "audit.subscribe"
+                         and optional filter params. Server responds with initial ack,
+                         then pushes NDJSON event lines until client disconnects.
+                         Each line is a JSON-RPC notification (no id field).
+
+Example frames:
+  # client request
+  {"jsonrpc":"2.0","id":1,"method":"audit.subscribe","params":{"agent":"claude-code"}}
+
+  # server ack
+  {"jsonrpc":"2.0","id":1,"result":{"ok":true,"stream":"audit"}}
+
+  # server notification
+  {"jsonrpc":"2.0","method":"audit.event","params":{"id":"evt_123","action_type":"tool_call","agent_id":"claude-code"}}
 ```
 
-Socket permissions: `0700` on directory, `0600` on socket. UID check on connection.
+**Socket auth:**
+- File permissions: `0700` on directory, `0600` on socket
+- **Kernel-verified peer credentials:** `SO_PEERCRED` check on every connection — verify connecting PID's UID matches daemon UID. Reject mismatched UIDs.
 
 ### SQLite Schema (v1)
 
@@ -203,7 +240,7 @@ CREATE TABLE events (
     cost_usd        REAL,
     adapter_id      TEXT,
     adapter_type    TEXT,
-    raw_payload_ref TEXT,           -- path to .zst sidecar
+    raw_payload_ref TEXT,           -- logical event-id ref to sidecar .zst blob
     prev_hash       TEXT,
     event_hash      TEXT NOT NULL,
     redacted        INTEGER DEFAULT 0
@@ -225,15 +262,23 @@ CREATE TABLE file_offsets (
     offset    INTEGER NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE chain_anchors (
+    epoch       TEXT PRIMARY KEY,  -- YYYY-MM-DD
+    event_id    TEXT NOT NULL,
+    event_hash  TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
 ```
 
 ### Hash Chain
 
 - **Algorithm:** SHA-256
-- **Payload:** `SHA256(id + timestamp + agent_id + action_type + action + outcome + prev_hash)`
+- **Payload:** Canonical serialization of the **entire redacted event record** (all persisted fields except `event_hash` itself), deterministic field ordering, then `SHA256(canonical_bytes + prev_hash)`
 - **Chain seed:** First event uses `prev_hash = "genesis"`
 - **Serialization:** Single goroutine holds chain head; events serialized through it after concurrent processing
 - **Corruption:** `--verify-integrity` reports first broken link and total chain length. No auto-repair — corruption is evidence.
+- **Retention-aware integrity:** Chain uses daily epoch anchors. When retention GC prunes old events, it preserves the last event of each epoch as a segment anchor. `--verify-integrity` validates each segment independently, so pruning doesn't break verification UX. Anchors are stored in a `chain_anchors` table.
 
 ### Daemon Config
 
@@ -267,12 +312,15 @@ queue:
   capacity: 10000
   batch_size: 100
   flush_interval: 1s
-  overflow: drop_oldest     # drop_oldest|block_with_timeout
+  overflow: block_with_timeout  # block_with_timeout|drop_oldest (throughput mode)
   block_timeout: 100ms
 
 audit:
   retention_days: 30
   hash_algorithm: sha256
+  raw_payload_max_size: 1048576   # 1MB per blob
+  raw_payload_quota: 524288000    # 500MB total
+  raw_payload_gc_interval: 1h
 
 commandments_file: ~/.config/crabwise/commandments.yaml
 
@@ -296,9 +344,34 @@ Adapters (N goroutines) → [bounded channel, cap 10k] → serializer goroutine 
 - Adapters send to buffered channel
 - Serializer: reads from channel, assigns hash chain, adds to batch buffer
 - Batch buffer flushes every 1s OR when batch_size reached
-- On channel full: overflow policy (drop_oldest or block_with_timeout)
+- On channel full: overflow policy (default: block_with_timeout for audit completeness; drop_oldest opt-in for throughput mode)
 - Every drop increments atomic counter + emits pipeline_overflow synthetic event
 - SQLite writer uses BEGIN/COMMIT for batch inserts
+```
+
+### Raw Payload Storage
+
+- **Location:** `~/.local/share/crabwise/raw/` (0700 directory)
+- **File permissions:** 0600 per blob
+- **Naming:** `<event-id>.zst` — `RawPayloadRef` stores logical event ID, resolved to file path internally (prevents path injection)
+- **Max blob size:** 1MB per payload (larger payloads truncated with marker)
+- **Total quota:** 500MB default (configurable). GC runs hourly.
+- **GC cadence:** Hourly sweep. Blobs older than `audit.retention_days` deleted. If quota exceeded, oldest blobs deleted first regardless of retention.
+- **Compression:** zstd level 3 (fast compression, reasonable ratio)
+
+### Proxy Egress Redaction
+
+Redacting outbound payloads can alter model behavior. Deterministic ordering:
+
+```
+Request arrives at proxy
+  → 1. Commandment evaluation (detect matches)
+  → 2. Enforcement decision (block → reject immediately, warn → continue)
+  → 3. Redaction (if commandment allows + redaction enabled for this path)
+       - Only redact patterns explicitly configured (API keys, tokens, credentials)
+       - Commandment-level override: `redact_egress: true|false` per rule
+       - Audit marker: `egress_redacted: true` on event if redaction applied
+  → 4. Forward to upstream (post-redaction payload)
 ```
 
 ### Filesystem Watching
@@ -321,7 +394,7 @@ Adapters (N goroutines) → [bounded channel, cap 10k] → serializer goroutine 
 - Degradation: log watcher becomes less useful but never crashes; proxy adapter unaffected
 
 **2. Hash chain serialization bottleneck**
-- Only hash assignment is serial (sub-microsecond SHA-256 of ~200 bytes)
+- Only hash assignment is serial; input size is the full canonical redacted event record
 - Parsing, commandment eval, batch buffering all concurrent
 - Fallback: per-adapter chains with merge-verification (unlikely needed at prototype scale)
 
@@ -475,6 +548,20 @@ crabwise/
 
 ---
 
+## De-scope Fallback List
+
+If week-5 schedule slips, defer in this order (least critical first):
+
+1. **TUI filters** (agent/action/trigger filtering in Bubble Tea) — basic unfiltered feed is sufficient
+2. **OTel export** — local-only audit is the core value; OTel is optional enhancement
+3. **Install script** — manual binary download acceptable for prototype
+4. **Cross-compile arm64** — amd64 only is fine for prototype
+5. **`crabwise audit --cost`** — cost data still captured, just no summary view
+
+**Never de-scope:** proxy correctness, SSE streaming, block enforcement, audit integrity, redaction.
+
+---
+
 ## Key Differences from Original Plan
 
 | Original | Revised |
@@ -491,11 +578,11 @@ crabwise/
 
 ---
 
-## Unresolved Questions
+## Resolved Questions
 
-1. **Go module path** — `github.com/crabwise-ai/crabwise`? Different org?
-2. **CC log format** — need to analyze real CC logs before M0 to validate parser assumptions. Have access to `~/.claude/` on dev machine?
-3. **Cost pricing source** — hardcoded config for prototype. Acceptable or need API-driven?
-4. **OpenClaw adapter** — proxy-first per plan. Any need for OpenClaw log watcher in prototype?
-5. **Systemd service** — install script creates user service? Or just binary in PATH?
-6. **License** — MIT confirmed?
+1. **Go module path** — `github.com/crabwise-ai/crabwise`
+2. **CC log format** — M0 gated on fixture capture + anonymization script. Must analyze real `~/.claude/` logs before parser development.
+3. **Cost pricing** — config-driven static pricing in prototype. Manual update acceptable.
+4. **OpenClaw adapter** — proxy-first only in prototype. No log watcher unless concrete user story appears.
+5. **Systemd service** — optional via `crabwise install --service` (not default). Default: binary in PATH.
+6. **License** — MIT. Single-player open source for devs. Team features (cloud sync, shared policies, push notifications) are the future commercial surface.
