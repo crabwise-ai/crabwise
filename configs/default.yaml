@@ -1,0 +1,33 @@
+daemon:
+  socket_path: ~/.local/share/crabwise/crabwise.sock
+  db_path: ~/.local/share/crabwise/crabwise.db
+  raw_payload_dir: ~/.local/share/crabwise/raw/
+  log_level: info
+  pid_file: ~/.local/share/crabwise/crabwise.pid
+
+discovery:
+  scan_interval: 10s
+  process_signatures:
+    - claude
+  log_paths:
+    - ~/.claude/projects/
+
+adapters:
+  log_watcher:
+    enabled: true
+    poll_fallback_interval: 30s
+
+queue:
+  capacity: 10000
+  batch_size: 100
+  flush_interval: 1s
+  overflow: block_with_timeout
+  block_timeout: 100ms
+
+audit:
+  retention_days: 30
+  hash_algorithm: sha256
+  raw_payload_enabled: false
+  raw_payload_max_size: 1048576
+  raw_payload_quota: 524288000
+  raw_payload_gc_interval: 1h
