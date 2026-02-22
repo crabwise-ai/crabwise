@@ -1,0 +1,6 @@
+{"type":"user","parentUuid":"root","sessionId":"sess-malformed","message":{"role":"user","content":"hello"},"uuid":"uuid-m01","timestamp":"2026-02-22T16:00:00.000Z"}
+this is not valid json at all
+{"type":"assistant","parentUuid":"uuid-m01","sessionId":"sess-malformed","message":{"role":"assistant","content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":100,"output_tokens":5}},"uuid":"uuid-m02","timestamp":"2026-02-22T16:00:01.000Z"}
+{"truncated":true
+{"type":"future_record_type","newField":"value","sessionId":"sess-malformed","timestamp":"2026-02-22T16:00:02.000Z"}
+{"type":"assistant","parentUuid":"uuid-m02","sessionId":"sess-malformed","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_m01","name":"UnknownTool","input":{"x":1}}],"usage":{"input_tokens":200,"output_tokens":10}},"uuid":"uuid-m03","timestamp":"2026-02-22T16:00:03.000Z"}
