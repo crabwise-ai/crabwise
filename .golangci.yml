@@ -1,11 +1,8 @@
+version: "2"
+
 linters:
+  default: standard
   enable:
-    - errcheck
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    - gosimple
     - gocritic
     - misspell
     - unconvert
