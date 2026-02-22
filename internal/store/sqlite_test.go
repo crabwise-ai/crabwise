@@ -137,6 +137,64 @@ func TestFileOffsets(t *testing.T) {
 	}
 }
 
+func TestInsertEvents_AtomicOffsets(t *testing.T) {
+	s, cleanup := tempDB(t)
+	defer cleanup()
+
+	events := []*audit.AuditEvent{
+		{
+			ID: "evt_a1", Timestamp: time.Now().UTC(),
+			AgentID: "claude-code", ActionType: audit.ActionToolCall, Outcome: audit.OutcomeSuccess,
+			EventHash: "h1", PrevHash: "genesis",
+			SourceFile: "/tmp/session1.jsonl", SourceOffset: 500,
+		},
+		{
+			ID: "evt_a2", Timestamp: time.Now().UTC(),
+			AgentID: "claude-code", ActionType: audit.ActionToolCall, Outcome: audit.OutcomeSuccess,
+			EventHash: "h2", PrevHash: "h1",
+			SourceFile: "/tmp/session1.jsonl", SourceOffset: 1000,
+		},
+		{
+			ID: "evt_b1", Timestamp: time.Now().UTC(),
+			AgentID: "claude-code", ActionType: audit.ActionToolCall, Outcome: audit.OutcomeSuccess,
+			EventHash: "h3", PrevHash: "h2",
+			SourceFile: "/tmp/session2.jsonl", SourceOffset: 300,
+		},
+	}
+
+	if err := s.InsertEvents(events); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	// Verify offsets were committed atomically — highest offset per file
+	offset1, _ := s.GetFileOffset("/tmp/session1.jsonl")
+	if offset1 != 1000 {
+		t.Fatalf("expected offset 1000 for session1, got %d", offset1)
+	}
+	offset2, _ := s.GetFileOffset("/tmp/session2.jsonl")
+	if offset2 != 300 {
+		t.Fatalf("expected offset 300 for session2, got %d", offset2)
+	}
+
+	// Events without SourceFile should not affect offsets
+	events2 := []*audit.AuditEvent{
+		{
+			ID: "evt_c1", Timestamp: time.Now().UTC(),
+			AgentID: "crabwise", ActionType: audit.ActionSystem, Outcome: audit.OutcomeSuccess,
+			EventHash: "h4", PrevHash: "h3",
+			// No SourceFile
+		},
+	}
+	if err := s.InsertEvents(events2); err != nil {
+		t.Fatalf("insert no-source: %v", err)
+	}
+	// Offsets should be unchanged
+	offset1After, _ := s.GetFileOffset("/tmp/session1.jsonl")
+	if offset1After != 1000 {
+		t.Fatalf("offset should be unchanged, got %d", offset1After)
+	}
+}
+
 func TestGetLastEventHash_Empty(t *testing.T) {
 	s, cleanup := tempDB(t)
 	defer cleanup()

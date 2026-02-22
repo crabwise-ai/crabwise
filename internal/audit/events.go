@@ -56,6 +56,11 @@ type AuditEvent struct {
 	PrevHash              string     `json:"prev_hash,omitempty"`
 	EventHash             string     `json:"event_hash,omitempty"`
 	Redacted              bool       `json:"redacted,omitempty"`
+
+	// SourceFile and SourceOffset are transport-only metadata for atomic offset commits.
+	// Not persisted to DB, not included in hash computation.
+	SourceFile   string `json:"-"`
+	SourceOffset int64  `json:"-"`
 }
 
 // CanonicalBytes produces deterministic bytes for hash computation.
