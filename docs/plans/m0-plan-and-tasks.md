@@ -1,8 +1,10 @@
-# M0 Implementation Plan: Foundation + First Value
+# M0 Implementation Plan: Foundation + First Value ✅ COMPLETE
 
 ## Context
 
 Crabwise is a local-first Go daemon + CLI that monitors AI agent activity. No code exists yet — pure greenfield. This plan covers M0 only: daemon lifecycle, CC log watcher, SQLite audit trail, basic CLI.
+
+**Status:** All tasks complete. Released as `v0.1.0-alpha.2`.
 
 ## Top User Stories
 
@@ -194,15 +196,15 @@ Files: `internal/daemon/config.go`, `internal/discovery/`, `internal/ipc/`
 
 ## Exit Gates
 
-- [ ] Daemon starts/stops cleanly for 100 cycles, no orphans
-- [ ] CC log events parsed and queryable in audit
-- [ ] Hash chain validates end-to-end
-- [ ] Zero parse panics on malformed/unknown records
-- [ ] IPC socket permissions enforced (0700 dir, 0600 socket, SO_PEERCRED verified)
-- [ ] SO_PEERCRED UID mismatch rejected (negative test)
-- [ ] `crabwise watch` streams events in real time
-- [ ] `go test -race ./...` passes (mandatory gate)
-- [ ] inotify fallback path tested
+- [x] Daemon starts/stops cleanly for 100 cycles, no orphans
+- [x] CC log events parsed and queryable in audit
+- [x] Hash chain validates end-to-end
+- [x] Zero parse panics on malformed/unknown records
+- [x] IPC socket permissions enforced (0700 dir, 0600 socket, SO_PEERCRED verified)
+- [x] SO_PEERCRED UID mismatch rejected (negative test)
+- [x] `crabwise watch` streams events in real time
+- [x] `go test -race ./...` passes (mandatory gate)
+- [x] inotify fallback path tested
 
 ## Testing Strategy
 
@@ -225,3 +227,31 @@ Files: `internal/daemon/config.go`, `internal/discovery/`, `internal/ipc/`
 8. Kill daemon → `crabwise start` → events resume from offset (no duplicates)
 9. Feed malformed JSONL → no panics, unknown records captured
 10. `crabwise stop` → clean exit, no orphan processes
+
+---
+
+## Post-M0 Additions (unplanned, done during M0 release hardening)
+
+### CI/CD Pipeline
+- GitHub Actions: golangci-lint v2, `go test -race`, `make build` on push/PR
+- GoReleaser on tag push (`v*`), gated on CI pass — linux+darwin, amd64+arm64
+- Dependabot: weekly PRs for Go modules + GitHub Actions
+- `.golangci.yml`: errcheck exclusions for safe patterns, test file exclusions
+
+### Install Script (pulled from M3 de-scope)
+- `curl | bash` installer with OS/arch detection, version pinning, sudo fallback
+- README updated to lead with install script
+
+### Origin Tracing
+- `hostname` (os.Hostname) + `user_id` (os.Getuid, kernel-verified) on every audit event
+- Included in hash chain canonical bytes (tamper-evident)
+- Migration 002 adds columns to existing DBs
+- Daemon stamps at event ingestion time (not per-adapter)
+
+### CC Parser Fixes (found during real-world testing)
+- `progress` record type: skipped (hook/internal, not audit-worthy)
+- `toolUseResult`: changed from `string` to `json.RawMessage` (CC sends objects)
+
+### Platform Support
+- Build constraints for SO_PEERCRED (Linux) vs no-op stub (darwin)
+- GoReleaser cross-compiles for darwin/amd64 + darwin/arm64

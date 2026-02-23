@@ -30,22 +30,26 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 
 ## Milestones (Vertical Slices)
 
-### M0 — Foundation + First Value (Weeks 1-1.5)
+### M0 — Foundation + First Value (Weeks 1-1.5) ✅ COMPLETE
 
 **Demo:** `crabwise start && crabwise audit` shows Claude Code events
 
-| Deliverable | Detail |
-|------------|--------|
-| Go scaffold | Cobra CLI, go.mod (`github.com/crabwise-ai/crabwise`), project structure |
-| Daemon lifecycle | start/stop/status, PID file, signal handling (SIGTERM/SIGINT) |
-| Config loading | `~/.config/crabwise/config.yaml` with sensible defaults |
-| SQLite | `~/.local/share/crabwise/crabwise.db`, WAL mode, schema migrations |
-| Agent discovery | /proc scanning for claude/openclaw processes, `~/.claude/` log detection |
-| CC log watcher | Locate JSONL sessions via fsnotify, tail, parse into AuditEvents |
-| Audit writer | Batched SQLite inserts, hash-chain integrity |
-| CLI queries | `crabwise agents`, `crabwise audit` (time/agent/action filters), `--export json`, `--verify-integrity` |
-| IPC | Unix socket (JSON-RPC 2.0), local-user-only permissions |
-| Basic watch | `crabwise watch` — streaming text output (not TUI), live event tail |
+| Deliverable | Detail | Status |
+|------------|--------|--------|
+| Go scaffold | Cobra CLI, go.mod (`github.com/crabwise-ai/crabwise`), project structure | ✅ |
+| Daemon lifecycle | start/stop/status, PID file, signal handling (SIGTERM/SIGINT) | ✅ |
+| Config loading | `~/.config/crabwise/config.yaml` with sensible defaults | ✅ |
+| SQLite | `~/.local/share/crabwise/crabwise.db`, WAL mode, schema migrations | ✅ |
+| Agent discovery | /proc scanning for claude/openclaw processes, `~/.claude/` log detection | ✅ |
+| CC log watcher | Locate JSONL sessions via fsnotify, tail, parse into AuditEvents | ✅ |
+| Audit writer | Batched SQLite inserts, hash-chain integrity | ✅ |
+| CLI queries | `crabwise agents`, `crabwise audit` (time/agent/action filters), `--export json`, `--verify-integrity` | ✅ |
+| IPC | Unix socket (JSON-RPC 2.0), local-user-only permissions | ✅ |
+| Basic watch | `crabwise watch` — streaming text output (not TUI), live event tail | ✅ |
+| **CI/CD** | **GitHub Actions (lint/test/build), GoReleaser, Dependabot** | **✅ (unplanned)** |
+| **Install script** | **`curl \| bash` installer with OS/arch detection, version pinning** | **✅ (unplanned, pulled from M3)** |
+| **Origin tracing** | **`hostname` + `user_id` (kernel UID) on every audit event** | **✅ (unplanned)** |
+| **Platform support** | **Build constraints for darwin (macOS) IPC, GoReleaser cross-compile** | **✅ (unplanned)** |
 
 **Pre-gate:** CC log fixtures captured + anonymization script run before parser development begins.
 
@@ -56,6 +60,14 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 - Zero parse panics on malformed/unknown records (captured via raw_payload)
 - IPC socket permissions enforced (0700 dir, 0600 socket, SO_PEERCRED verified)
 - `crabwise watch` streams events in real time
+
+**Post-M0 changes (not in original plan):**
+- CC parser: added `progress` record type (skip), fixed `toolUseResult` as `json.RawMessage` (CC sends objects, not strings)
+- Audit events: added `hostname` (os.Hostname) and `user_id` (os.Getuid, kernel-verified) fields for origin tracing — included in hash chain, persisted via migration 002
+- CI/CD: GitHub Actions with golangci-lint v2, race-detector tests, GoReleaser (linux+darwin, amd64+arm64), Dependabot for Go modules + Actions
+- Install script: `curl | bash` with OS/arch detection, version pinning, sudo fallback (pulled forward from M3 de-scope list)
+- Linting: `.golangci.yml` with errcheck exclusions for safe patterns (defer Close, fmt.Fprint, os.Remove), test file exclusions
+- Platform: build constraints for SO_PEERCRED (Linux-only) vs no-op (darwin), enabling macOS builds
 
 ### M1 — Commandment Engine + Warn (Weeks 2-2.5)
 
@@ -216,7 +228,7 @@ Example frames:
 - File permissions: `0700` on directory, `0600` on socket
 - **Kernel-verified peer credentials:** `SO_PEERCRED` check on every connection — verify connecting PID's UID matches daemon UID. Reject mismatched UIDs.
 
-### SQLite Schema (v1)
+### SQLite Schema (v2)
 
 ```sql
 CREATE TABLE events (
@@ -241,6 +253,8 @@ CREATE TABLE events (
     adapter_id      TEXT,
     adapter_type    TEXT,
     raw_payload_ref TEXT,           -- logical event-id ref to sidecar .zst blob
+    hostname        TEXT,           -- v2: machine identity (os.Hostname)
+    user_id         TEXT,           -- v2: kernel UID (os.Getuid), not $USER
     prev_hash       TEXT,
     event_hash      TEXT NOT NULL,
     redacted        INTEGER DEFAULT 0
@@ -511,7 +525,8 @@ crabwise/
 │   └── store/
 │       ├── sqlite.go               # Connection + migrations
 │       └── migrations/
-│           └── 001_initial.sql
+│           ├── 001_initial.sql
+│           └── 002_add_origin.sql  # hostname + user_id columns
 ├── testdata/
 │   ├── claude-code/                # CC log fixtures
 │   ├── commandments/               # YAML test cases
@@ -519,13 +534,18 @@ crabwise/
 ├── configs/
 │   ├── default.yaml
 │   └── commandments.example.yaml
-├── scripts/
-│   └── install.sh
-├── plan/
+├── .github/
+│   ├── workflows/
+│   │   ├── ci.yml                  # Lint + test + build on push/PR
+│   │   └── release.yml             # GoReleaser on tag push, gated on CI
+│   └── dependabot.yml              # Weekly Go module + Actions updates
 ├── docs/
 ├── go.mod
 ├── go.sum
+├── install.sh                      # curl | bash installer
 ├── Makefile
+├── .golangci.yml                   # golangci-lint v2 config
+├── .goreleaser.yml                 # GoReleaser: linux+darwin, amd64+arm64
 ├── LICENSE
 └── README.md
 ```
@@ -554,8 +574,8 @@ If week-5 schedule slips, defer in this order (least critical first):
 
 1. **TUI filters** (agent/action/trigger filtering in Bubble Tea) — basic unfiltered feed is sufficient
 2. **OTel export** — local-only audit is the core value; OTel is optional enhancement
-3. **Install script** — manual binary download acceptable for prototype
-4. **Cross-compile arm64** — amd64 only is fine for prototype
+3. ~~**Install script** — manual binary download acceptable for prototype~~ ✅ Done in M0
+4. ~~**Cross-compile arm64** — amd64 only is fine for prototype~~ ✅ Done in M0 (linux+darwin, amd64+arm64)
 5. **`crabwise audit --cost`** — cost data still captured, just no summary view
 
 **Never de-scope:** proxy correctness, SSE streaming, block enforcement, audit integrity, redaction.
