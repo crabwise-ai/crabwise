@@ -251,49 +251,60 @@ func TestOutcomePrecedenceMatrix(t *testing.T) {
 }
 
 func TestLoggerProcessEvent_ExemptSystemEventsSkipEvaluationAndRedaction(t *testing.T) {
-	store := newLoggerTestStore()
-	q := queue.New(16, queue.PolicyBlockWithTimeout, 10*time.Millisecond)
-
-	logger, err := NewLogger(store, q, 1, time.Hour)
-	if err != nil {
-		t.Fatalf("new logger: %v", err)
+	tests := []string{
+		"commandments_reload_ok",
+		"commandments_reload_failed",
+		"commandments_load_failed",
+		"commandments_load_ok",
 	}
 
-	var evaluateCalls int
-	var redactCalls int
-	logger.SetEvaluator(evaluatorFunc(func(e *AuditEvent) EvalResult {
-		evaluateCalls++
-		return EvalResult{Evaluated: []string{"rule"}, Triggered: []TriggeredRule{{Name: "rule", Enforcement: "warn"}}}
-	}))
-	logger.SetRedactor(redactorFunc(func(e *AuditEvent, ruleTriggered bool) {
-		redactCalls++
-	}))
+	for _, action := range tests {
+		t.Run(action, func(t *testing.T) {
+			store := newLoggerTestStore()
+			q := queue.New(16, queue.PolicyBlockWithTimeout, 10*time.Millisecond)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	logger.Start(ctx)
-	defer func() {
-		cancel()
-		logger.Stop()
-	}()
+			logger, err := NewLogger(store, q, 1, time.Hour)
+			if err != nil {
+				t.Fatalf("new logger: %v", err)
+			}
 
-	q.Send(&AuditEvent{
-		ID:         "evt_exempt",
-		Timestamp:  time.Now().UTC(),
-		AgentID:    "crabwise",
-		ActionType: ActionSystem,
-		Action:     "commandments_reload_ok",
-		Outcome:    OutcomeSuccess,
-	})
+			var evaluateCalls int
+			var redactCalls int
+			logger.SetEvaluator(evaluatorFunc(func(e *AuditEvent) EvalResult {
+				evaluateCalls++
+				return EvalResult{Evaluated: []string{"rule"}, Triggered: []TriggeredRule{{Name: "rule", Enforcement: "warn"}}}
+			}))
+			logger.SetRedactor(redactorFunc(func(e *AuditEvent, ruleTriggered bool) {
+				redactCalls++
+			}))
 
-	batch := waitInsertedBatch(t, store)
-	if len(batch) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(batch))
-	}
+			ctx, cancel := context.WithCancel(context.Background())
+			logger.Start(ctx)
+			defer func() {
+				cancel()
+				logger.Stop()
+			}()
 
-	if evaluateCalls != 0 || redactCalls != 0 {
-		t.Fatalf("expected exempt system event to skip evaluator/redactor, got evaluate=%d redact=%d", evaluateCalls, redactCalls)
-	}
-	if batch[0].CommandmentsEvaluated != "" || batch[0].CommandmentsTriggered != "" {
-		t.Fatalf("expected exempt event commandments fields to be empty")
+			q.Send(&AuditEvent{
+				ID:         "evt_exempt",
+				Timestamp:  time.Now().UTC(),
+				AgentID:    "crabwise",
+				ActionType: ActionSystem,
+				Action:     action,
+				Outcome:    OutcomeSuccess,
+			})
+
+			batch := waitInsertedBatch(t, store)
+			if len(batch) != 1 {
+				t.Fatalf("expected 1 event, got %d", len(batch))
+			}
+
+			if evaluateCalls != 0 || redactCalls != 0 {
+				t.Fatalf("expected exempt system event to skip evaluator/redactor, got evaluate=%d redact=%d", evaluateCalls, redactCalls)
+			}
+			if batch[0].CommandmentsEvaluated != "" || batch[0].CommandmentsTriggered != "" {
+				t.Fatalf("expected exempt event commandments fields to be empty")
+			}
+		})
 	}
 }

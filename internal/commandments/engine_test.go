@@ -135,6 +135,76 @@ func TestEvaluate_NumericNonNumericNoMatch(t *testing.T) {
 	}
 }
 
+func TestEvaluate_NumericZeroValueFieldsMatch(t *testing.T) {
+	rules := []Commandment{
+		{
+			Name:        "zero-input-tokens",
+			Enforcement: "warn",
+			Enabled:     boolPtr(true),
+			Match: map[string]MatchCondition{
+				"input_tokens": {
+					Type:  MatcherTypeNumeric,
+					Op:    "eq",
+					Value: 0,
+				},
+			},
+		},
+		{
+			Name:        "zero-output-tokens",
+			Enforcement: "warn",
+			Enabled:     boolPtr(true),
+			Match: map[string]MatchCondition{
+				"output_tokens": {
+					Type:  MatcherTypeNumeric,
+					Op:    "eq",
+					Value: 0,
+				},
+			},
+		},
+		{
+			Name:        "zero-cost",
+			Enforcement: "warn",
+			Enabled:     boolPtr(true),
+			Match: map[string]MatchCondition{
+				"cost_usd": {
+					Type:  MatcherTypeNumeric,
+					Op:    "eq",
+					Value: 0,
+				},
+			},
+		},
+		{
+			Name:        "zero-agent-pid",
+			Enforcement: "warn",
+			Enabled:     boolPtr(true),
+			Match: map[string]MatchCondition{
+				"agent_pid": {
+					Type:  MatcherTypeNumeric,
+					Op:    "eq",
+					Value: 0,
+				},
+			},
+		},
+	}
+
+	compiled, err := compileRules(rules)
+	if err != nil {
+		t.Fatalf("compile rules: %v", err)
+	}
+	engine := &Engine{rules: compiled}
+
+	result := engine.Evaluate(&audit.AuditEvent{
+		InputTokens:  0,
+		OutputTokens: 0,
+		CostUSD:      0,
+		AgentPID:     0,
+	})
+
+	if len(result.Triggered) != 4 {
+		t.Fatalf("expected 4 triggered zero-value numeric rules, got %+v", result.Triggered)
+	}
+}
+
 func TestEvalLatencySLO(t *testing.T) {
 	rules := make([]Commandment, 0, 20)
 	for i := 0; i < 20; i++ {

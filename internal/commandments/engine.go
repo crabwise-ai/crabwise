@@ -232,24 +232,12 @@ func eventFieldValue(evt *audit.AuditEvent, field string) (string, bool) {
 		v := string(evt.Outcome)
 		return v, v != ""
 	case "input_tokens":
-		if evt.InputTokens == 0 {
-			return "", false
-		}
 		return strconv.FormatInt(evt.InputTokens, 10), true
 	case "output_tokens":
-		if evt.OutputTokens == 0 {
-			return "", false
-		}
 		return strconv.FormatInt(evt.OutputTokens, 10), true
 	case "cost_usd":
-		if evt.CostUSD == 0 {
-			return "", false
-		}
 		return strconv.FormatFloat(evt.CostUSD, 'f', -1, 64), true
 	case "agent_pid":
-		if evt.AgentPID == 0 {
-			return "", false
-		}
 		return strconv.Itoa(evt.AgentPID), true
 	default:
 		return "", false
