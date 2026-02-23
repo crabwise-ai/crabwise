@@ -39,9 +39,9 @@ type CCRecord struct {
 	Version   string          `json:"version"`
 	Message   json.RawMessage `json:"message"`
 
-	// Tool result fields
-	ToolUseResult          string `json:"toolUseResult"`
-	SourceToolAssistantUUID string `json:"sourceToolAssistantUUID"`
+	// Tool result fields (toolUseResult can be string or object)
+	ToolUseResult          json.RawMessage `json:"toolUseResult"`
+	SourceToolAssistantUUID string          `json:"sourceToolAssistantUUID"`
 
 	// Raw bytes for unknown record handling
 	rawBytes []byte
@@ -100,7 +100,7 @@ func ParseLine(line []byte, sessionFile string, lineOffset int64) ([]*audit.Audi
 		return parseUser(&rec, sessionFile)
 	case "system":
 		return []*audit.AuditEvent{systemEvent(&rec, sessionFile, lineOffset)}, nil
-	case "queue-operation", "file-history-snapshot", "summary":
+	case "queue-operation", "file-history-snapshot", "summary", "progress":
 		return nil, nil // skip
 	case "":
 		return []*audit.AuditEvent{unknownEvent(sessionFile, line, fmt.Errorf("empty type"), lineOffset)}, nil
@@ -147,7 +147,7 @@ func parseAssistant(rec *CCRecord, sessionFile string, lineOffset int64) ([]*aud
 func parseUser(rec *CCRecord, sessionFile string) ([]*audit.AuditEvent, error) {
 	// Tool results — we skip these as standalone events since
 	// the tool call event already captures the action
-	if rec.ToolUseResult != "" {
+	if len(rec.ToolUseResult) > 0 && string(rec.ToolUseResult) != "null" {
 		return nil, nil
 	}
 	return nil, nil

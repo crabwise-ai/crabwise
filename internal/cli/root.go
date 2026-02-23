@@ -11,20 +11,20 @@ import (
 var Version = "dev"
 
 // TODO: Replace with ASCII art logo
-const logo = "
-               ffff            ffff               
-             ffff                ffff             
-             ff  ff            ff  ff             
-             GGGGGG  GG    GG  GGGGGG             
-             GGGG    GG    GG    GGGG             
-             GG    GGGGGGGGGGGG    GG             
-             tttttttttttttttttttttttt             
-               tttttttttttttttttttt               
-                 tttttttttttttttt                 
-               11111111111111111111               
-             11    11        11    11             
-             11    11        11    11             
-"
+const logo = `
+               ffff            ffff
+             ffff                ffff
+             ff  ff            ff  ff
+             GGGGGG  GG    GG  GGGGGG
+             GGGG    GG    GG    GGGG
+             GG    GGGGGGGGGGGG    GG
+             tttttttttttttttttttttttt
+               tttttttttttttttttttt
+                 tttttttttttttttt
+               11111111111111111111
+             11    11        11    11
+             11    11        11    11
+`
 
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
