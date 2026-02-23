@@ -1,0 +1,7 @@
+version: "2"
+commandments:
+  - name: wrong-version
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution

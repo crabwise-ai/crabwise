@@ -93,3 +93,35 @@ func TestComputeHash_FieldChange(t *testing.T) {
 		t.Fatal("different outcome should produce different hash")
 	}
 }
+
+func TestComputeHash_CommandmentsMetadataDeterminism(t *testing.T) {
+	ts := time.Date(2026, 2, 22, 14, 0, 0, 0, time.UTC)
+	base := &AuditEvent{
+		ID:                    "evt_001",
+		Timestamp:             ts,
+		AgentID:               "claude-code",
+		ActionType:            ActionCommandExecution,
+		Action:                "Bash",
+		Arguments:             "git push origin main",
+		Outcome:               OutcomeWarned,
+		CommandmentsEvaluated: `["rule-b","rule-a"]`,
+		CommandmentsTriggered: `[{"name":"rule-b","enforcement":"warn"},{"name":"rule-a","enforcement":"warn"}]`,
+	}
+
+	h1 := ComputeHash(base, "genesis")
+
+	same := *base
+	h2 := ComputeHash(&same, "genesis")
+	if h1 != h2 {
+		t.Fatal("same commandments metadata should produce deterministic hash")
+	}
+
+	reordered := *base
+	reordered.CommandmentsEvaluated = `["rule-a","rule-b"]`
+	reordered.CommandmentsTriggered = `[{"name":"rule-a","enforcement":"warn"},{"name":"rule-b","enforcement":"warn"}]`
+	h3 := ComputeHash(&reordered, "genesis")
+
+	if h1 == h3 {
+		t.Fatal("changing commandments metadata order should change hash")
+	}
+}

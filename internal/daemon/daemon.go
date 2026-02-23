@@ -22,14 +22,15 @@ import (
 )
 
 type Daemon struct {
-	cfg       *Config
-	store     *store.Store
-	queue     *queue.Queue
-	logger    *audit.Logger
-	ipcServer *ipc.Server
-	registry  *discovery.Registry
-	watcher   *logwatcher.LogWatcher
-	startTime time.Time
+	cfg          *Config
+	store        *store.Store
+	queue        *queue.Queue
+	logger       *audit.Logger
+	ipcServer    *ipc.Server
+	registry     *discovery.Registry
+	watcher      *logwatcher.LogWatcher
+	commandments CommandmentsService
+	startTime    time.Time
 
 	hostname string
 	userID   string
@@ -80,8 +81,24 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("audit logger: %w", err)
 	}
+
+	var commandmentsInitErr error
+	if d.commandments, commandmentsInitErr = NewCommandmentsService(d.cfg.Commandments.File, DefaultCommandmentsYAML); commandmentsInitErr != nil {
+		log.Printf("daemon: commandments init error: %v", commandmentsInitErr)
+		d.commandments = &noopCommandmentsService{}
+	}
+	d.logger.SetEvaluator(d.commandments)
+	d.logger.SetRedactor(d.commandments)
+
 	d.logger.Start(ctx)
 	defer d.logger.Stop()
+
+	if commandmentsInitErr != nil {
+		d.emitSystemEvent("commandments_load_failed", audit.OutcomeFailure, map[string]interface{}{"error": commandmentsInitErr.Error()})
+	} else {
+		rulesLoaded := len(d.commandments.List())
+		d.emitSystemEvent("commandments_load_ok", audit.OutcomeSuccess, map[string]interface{}{"rules_loaded": rulesLoaded})
+	}
 
 	// IPC server
 	d.ipcServer = ipc.NewServer(d.cfg.Daemon.SocketPath)
@@ -120,19 +137,30 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	log.Printf("daemon: started (pid=%d, socket=%s, db=%s)", os.Getpid(), d.cfg.Daemon.SocketPath, d.cfg.Daemon.DBPath)
 
-	// Wait for shutdown signal
+	// Wait for signal loop
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	defer signal.Stop(sigCh)
 
-	select {
-	case sig := <-sigCh:
-		log.Printf("daemon: received %s, shutting down", sig)
-	case <-ctx.Done():
-		log.Printf("daemon: context cancelled, shutting down")
+	for {
+		select {
+		case sig := <-sigCh:
+			switch sig {
+			case syscall.SIGHUP:
+				if _, err := d.reloadCommandments(); err != nil {
+					log.Printf("daemon: commandments reload error: %v", err)
+				}
+			default:
+				log.Printf("daemon: received %s, shutting down", sig)
+				d.cancel()
+				return nil
+			}
+		case <-ctx.Done():
+			log.Printf("daemon: context cancelled, shutting down")
+			d.cancel()
+			return nil
+		}
 	}
-
-	d.cancel()
-	return nil
 }
 
 func (d *Daemon) forwardEvents(ctx context.Context) {
@@ -177,11 +205,11 @@ func (d *Daemon) registerIPC() {
 	d.ipcServer.Handle("status", func(params json.RawMessage) (interface{}, error) {
 		stats := d.queue.Stats()
 		return map[string]interface{}{
-			"uptime":      time.Since(d.startTime).Truncate(time.Second).String(),
-			"agents":      d.registry.Count(),
-			"queue_depth":  stats.Depth,
+			"uptime":        time.Since(d.startTime).Truncate(time.Second).String(),
+			"agents":        d.registry.Count(),
+			"queue_depth":   stats.Depth,
 			"queue_dropped": stats.Dropped,
-			"pid":          os.Getpid(),
+			"pid":           os.Getpid(),
 		}, nil
 	})
 
@@ -193,14 +221,15 @@ func (d *Daemon) registerIPC() {
 		var filter audit.QueryFilter
 		if len(params) > 0 {
 			var f struct {
-				Since   string `json:"since"`
-				Until   string `json:"until"`
-				Agent   string `json:"agent"`
-				Action  string `json:"action"`
-				Session string `json:"session"`
-				Outcome string `json:"outcome"`
-				Limit   int    `json:"limit"`
-				Offset  int    `json:"offset"`
+				Since     string `json:"since"`
+				Until     string `json:"until"`
+				Agent     string `json:"agent"`
+				Action    string `json:"action"`
+				Session   string `json:"session"`
+				Outcome   string `json:"outcome"`
+				Triggered bool   `json:"triggered"`
+				Limit     int    `json:"limit"`
+				Offset    int    `json:"offset"`
 			}
 			if err := json.Unmarshal(params, &f); err != nil {
 				return nil, fmt.Errorf("parse params: %w", err)
@@ -217,10 +246,52 @@ func (d *Daemon) registerIPC() {
 			filter.Action = f.Action
 			filter.Session = f.Session
 			filter.Outcome = f.Outcome
+			filter.TriggeredOnly = f.Triggered
 			filter.Limit = f.Limit
 			filter.Offset = f.Offset
 		}
 		return audit.QueryEvents(d.store.DB(), filter)
+	})
+
+	d.ipcServer.Handle("commandments.list", func(params json.RawMessage) (interface{}, error) {
+		if d.commandments == nil {
+			return []CommandmentRuleSummary{}, nil
+		}
+		return d.commandments.List(), nil
+	})
+
+	d.ipcServer.Handle("commandments.test", func(params json.RawMessage) (interface{}, error) {
+		if d.commandments == nil {
+			return audit.EvalResult{Evaluated: []string{}, Triggered: []audit.TriggeredRule{}}, nil
+		}
+
+		if len(params) == 0 {
+			return nil, fmt.Errorf("missing params")
+		}
+
+		var event audit.AuditEvent
+		var payload struct {
+			Event json.RawMessage `json:"event"`
+		}
+		if err := json.Unmarshal(params, &payload); err == nil && len(payload.Event) > 0 {
+			if err := json.Unmarshal(payload.Event, &event); err != nil {
+				return nil, fmt.Errorf("parse event: %w", err)
+			}
+		} else {
+			if err := json.Unmarshal(params, &event); err != nil {
+				return nil, fmt.Errorf("parse event: %w", err)
+			}
+		}
+
+		return d.commandments.Test(&event), nil
+	})
+
+	d.ipcServer.Handle("commandments.reload", func(params json.RawMessage) (interface{}, error) {
+		rulesLoaded, err := d.reloadCommandments()
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"ok": true, "rules_loaded": rulesLoaded}, nil
 	})
 
 	d.ipcServer.Handle("audit.verify", func(params json.RawMessage) (interface{}, error) {
@@ -286,4 +357,52 @@ func (d *Daemon) writePID() error {
 
 func (d *Daemon) removePID() {
 	os.Remove(d.cfg.Daemon.PIDFile)
+}
+
+func (d *Daemon) reloadCommandments() (int, error) {
+	if d.commandments == nil {
+		d.commandments = &noopCommandmentsService{}
+	}
+
+	rulesLoaded, err := d.commandments.Reload()
+	if err != nil {
+		d.emitSystemEvent("commandments_reload_failed", audit.OutcomeFailure, map[string]interface{}{"error": err.Error()})
+		return 0, err
+	}
+
+	if rulesLoaded == 0 {
+		rulesLoaded = len(d.commandments.List())
+	}
+	d.emitSystemEvent("commandments_reload_ok", audit.OutcomeSuccess, map[string]interface{}{"rules_loaded": rulesLoaded})
+	return rulesLoaded, nil
+}
+
+func (d *Daemon) emitSystemEvent(action string, outcome audit.Outcome, payload interface{}) {
+	if d.queue == nil {
+		return
+	}
+
+	args := ""
+	if payload != nil {
+		if b, err := json.Marshal(payload); err == nil {
+			args = string(b)
+		}
+	}
+
+	now := time.Now().UTC()
+	e := &audit.AuditEvent{
+		ID:          fmt.Sprintf("sys_%d_%s", now.UnixNano(), action),
+		Timestamp:   now,
+		AgentID:     "crabwise",
+		ActionType:  audit.ActionSystem,
+		Action:      action,
+		Arguments:   args,
+		Outcome:     outcome,
+		AdapterID:   "daemon",
+		AdapterType: "daemon",
+		Hostname:    d.hostname,
+		UserID:      d.userID,
+	}
+
+	d.queue.Send(e)
 }

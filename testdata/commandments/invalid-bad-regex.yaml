@@ -1,0 +1,10 @@
+version: "1"
+commandments:
+  - name: bad-regex
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+      arguments:
+        type: regex
+        pattern: "(unclosed"

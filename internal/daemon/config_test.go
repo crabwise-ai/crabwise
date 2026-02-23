@@ -3,6 +3,7 @@ package daemon
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -23,6 +24,9 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	}
 	if cfg.Daemon.LogLevel != "info" {
 		t.Fatalf("expected log_level info, got %s", cfg.Daemon.LogLevel)
+	}
+	if cfg.Commandments.File == "" {
+		t.Fatal("expected commandments.file default to be set")
 	}
 }
 
@@ -70,7 +74,27 @@ func TestLoadConfig_ExpandTilde(t *testing.T) {
 	}
 
 	home, _ := os.UserHomeDir()
-	if cfg.Daemon.SocketPath[:len(home)] != home {
+	if !strings.HasPrefix(cfg.Daemon.SocketPath, home) {
 		t.Fatalf("expected tilde expansion, got %s", cfg.Daemon.SocketPath)
+	}
+	if !strings.HasPrefix(cfg.Commandments.File, home) {
+		t.Fatalf("expected commandments.file tilde expansion, got %s", cfg.Commandments.File)
+	}
+}
+
+func TestLoadConfig_CommandmentsDefaultPathWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("commandments:\n  file: \"\"\n"), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if filepath.Base(cfg.Commandments.File) != "commandments.yaml" {
+		t.Fatalf("expected default commandments path, got %s", cfg.Commandments.File)
 	}
 }

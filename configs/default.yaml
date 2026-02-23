@@ -31,3 +31,6 @@ audit:
   raw_payload_max_size: 1048576
   raw_payload_quota: 524288000
   raw_payload_gc_interval: 1h
+
+commandments:
+  file: ~/.config/crabwise/commandments.yaml
