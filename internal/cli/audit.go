@@ -19,6 +19,8 @@ func newAuditCmd() *cobra.Command {
 		agent      string
 		action     string
 		session    string
+		outcome    string
+		triggered  bool
 		limit      int
 		export     string
 		verify     bool
@@ -59,6 +61,12 @@ func newAuditCmd() *cobra.Command {
 			if session != "" {
 				params["session"] = session
 			}
+			if outcome != "" {
+				params["outcome"] = outcome
+			}
+			if triggered {
+				params["triggered"] = true
+			}
 			if limit > 0 {
 				params["limit"] = limit
 			}
@@ -84,7 +92,7 @@ func newAuditCmd() *cobra.Command {
 
 			for _, e := range qr.Events {
 				ts := e.Timestamp.Format("15:04:05")
-				fmt.Printf("%s [%s] %-18s %-10s %s\n", ts, e.AgentID, e.ActionType, e.Action, e.SessionID)
+				fmt.Printf("%s [%s] %-18s %-10s %-8s %s\n", ts, e.AgentID, e.ActionType, e.Action, e.Outcome, e.SessionID)
 			}
 			fmt.Printf("\nTotal: %d events\n", qr.Total)
 
@@ -98,6 +106,8 @@ func newAuditCmd() *cobra.Command {
 	cmd.Flags().StringVar(&agent, "agent", "", "filter by agent ID")
 	cmd.Flags().StringVar(&action, "action", "", "filter by action type")
 	cmd.Flags().StringVar(&session, "session", "", "filter by session ID")
+	cmd.Flags().StringVar(&outcome, "outcome", "", "filter by outcome (success, warned, failure, blocked)")
+	cmd.Flags().BoolVar(&triggered, "triggered", false, "show only events with triggered commandments")
 	cmd.Flags().IntVar(&limit, "limit", 50, "max events to return")
 	cmd.Flags().StringVar(&export, "export", "", "export format (json)")
 	cmd.Flags().BoolVar(&verify, "verify-integrity", false, "verify hash chain integrity")
@@ -147,9 +157,9 @@ func exportJSON(client *ipc.Client, params map[string]interface{}) error {
 	}
 
 	output := struct {
-		ExportedAt string              `json:"exported_at"`
-		Count      int                 `json:"count"`
-		Events     []json.RawMessage   `json:"events"`
+		ExportedAt string            `json:"exported_at"`
+		Count      int               `json:"count"`
+		Events     []json.RawMessage `json:"events"`
 	}{
 		ExportedAt: time.Now().UTC().Format(time.RFC3339),
 		Count:      len(qr.Events),

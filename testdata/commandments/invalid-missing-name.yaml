@@ -1,0 +1,6 @@
+version: "1"
+commandments:
+  - enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution

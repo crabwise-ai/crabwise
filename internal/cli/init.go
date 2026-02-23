@@ -15,30 +15,56 @@ func newInitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize default config file",
-		Long:  "Write the default configuration to ~/.config/crabwise/config.yaml. Does not overwrite existing config unless --force is used.",
+		Long:  "Write default configuration files to ~/.config/crabwise/. Does not overwrite existing files unless --force is used.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configDir := defaultInitConfigDir()
 			configPath := filepath.Join(configDir, "config.yaml")
-
-			if _, err := os.Stat(configPath); err == nil && !force {
-				return fmt.Errorf("config already exists at %s (use --force to overwrite)", configPath)
-			}
+			commandmentsPath := filepath.Join(configDir, "commandments.yaml")
 
 			if err := os.MkdirAll(configDir, 0700); err != nil {
 				return fmt.Errorf("create config dir: %w", err)
 			}
 
-			if err := os.WriteFile(configPath, configs.DefaultYAML, 0600); err != nil {
+			configWritten, err := writeDefaultFile(configPath, configs.DefaultYAML, force)
+			if err != nil {
 				return fmt.Errorf("write config: %w", err)
 			}
 
-			fmt.Printf("Config written to %s\n", configPath)
+			commandmentsWritten, err := writeDefaultFile(commandmentsPath, configs.DefaultCommandmentsYAML, force)
+			if err != nil {
+				return fmt.Errorf("write commandments: %w", err)
+			}
+
+			if configWritten {
+				fmt.Printf("Config written to %s\n", configPath)
+			} else {
+				fmt.Printf("Config already exists at %s\n", configPath)
+			}
+
+			if commandmentsWritten {
+				fmt.Printf("Commandments written to %s\n", commandmentsPath)
+			} else {
+				fmt.Printf("Commandments already exist at %s\n", commandmentsPath)
+			}
+
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite existing config")
 	return cmd
+}
+
+func writeDefaultFile(path string, content []byte, force bool) (bool, error) {
+	if _, err := os.Stat(path); err == nil && !force {
+		return false, nil
+	}
+
+	if err := os.WriteFile(path, content, 0600); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 func defaultInitConfigDir() string {

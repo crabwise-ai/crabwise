@@ -14,12 +14,17 @@ import (
 // Set from configs package at init time.
 var DefaultConfigYAML []byte
 
+// DefaultCommandmentsYAML is the embedded default commandments file.
+// Set from configs package at init time.
+var DefaultCommandmentsYAML []byte
+
 type Config struct {
-	Daemon    DaemonConfig    `yaml:"daemon"`
-	Discovery DiscoveryConfig `yaml:"discovery"`
-	Adapters  AdaptersConfig  `yaml:"adapters"`
-	Queue     QueueConfig     `yaml:"queue"`
-	Audit     AuditConfig     `yaml:"audit"`
+	Daemon       DaemonConfig       `yaml:"daemon"`
+	Discovery    DiscoveryConfig    `yaml:"discovery"`
+	Adapters     AdaptersConfig     `yaml:"adapters"`
+	Queue        QueueConfig        `yaml:"queue"`
+	Audit        AuditConfig        `yaml:"audit"`
+	Commandments CommandmentsConfig `yaml:"commandments"`
 }
 
 type DaemonConfig struct {
@@ -46,11 +51,11 @@ type LogWatcherConfig struct {
 }
 
 type QueueConfig struct {
-	Capacity     int      `yaml:"capacity"`
-	BatchSize    int      `yaml:"batch_size"`
+	Capacity      int      `yaml:"capacity"`
+	BatchSize     int      `yaml:"batch_size"`
 	FlushInterval Duration `yaml:"flush_interval"`
-	Overflow     string   `yaml:"overflow"`
-	BlockTimeout Duration `yaml:"block_timeout"`
+	Overflow      string   `yaml:"overflow"`
+	BlockTimeout  Duration `yaml:"block_timeout"`
 }
 
 type AuditConfig struct {
@@ -60,6 +65,10 @@ type AuditConfig struct {
 	RawPayloadMaxSize    int64    `yaml:"raw_payload_max_size"`
 	RawPayloadQuota      int64    `yaml:"raw_payload_quota"`
 	RawPayloadGCInterval Duration `yaml:"raw_payload_gc_interval"`
+}
+
+type CommandmentsConfig struct {
+	File string `yaml:"file"`
 }
 
 // Duration wraps time.Duration for YAML unmarshaling.
@@ -114,6 +123,7 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.Queue.BlockTimeout = Duration(100 * time.Millisecond)
 		cfg.Audit.RetentionDays = 30
 		cfg.Audit.HashAlgorithm = "sha256"
+		cfg.Commandments.File = "~/.config/crabwise/commandments.yaml"
 	}
 
 	// Override with user config if present
@@ -156,6 +166,7 @@ func (c *Config) expandPaths() {
 	c.Daemon.DBPath = expand(c.Daemon.DBPath)
 	c.Daemon.RawPayloadDir = expand(c.Daemon.RawPayloadDir)
 	c.Daemon.PIDFile = expand(c.Daemon.PIDFile)
+	c.Commandments.File = expand(c.Commandments.File)
 
 	for i, p := range c.Discovery.LogPaths {
 		c.Discovery.LogPaths[i] = expand(p)
@@ -168,6 +179,9 @@ func (c *Config) validate() error {
 	}
 	if c.Daemon.DBPath == "" {
 		return fmt.Errorf("daemon.db_path required")
+	}
+	if c.Commandments.File == "" {
+		c.Commandments.File = defaultCommandmentsPath()
 	}
 	switch c.Daemon.LogLevel {
 	case "debug", "info", "warn", "error", "":
@@ -183,4 +197,12 @@ func (c *Config) validate() error {
 		return fmt.Errorf("invalid queue.overflow %q", c.Queue.Overflow)
 	}
 	return nil
+}
+
+func defaultCommandmentsPath() string {
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, "crabwise", "commandments.yaml")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "crabwise", "commandments.yaml")
 }

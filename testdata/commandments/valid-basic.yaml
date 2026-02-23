@@ -1,0 +1,29 @@
+version: "1"
+commandments:
+  - name: no-destructive-commands
+    description: Warn on destructive shell commands
+    enforcement: warn
+    priority: 100
+    enabled: true
+    match:
+      action_type: command_execution
+      arguments:
+        type: regex
+        pattern: "rm\\s+-rf|mkfs|dd\\s+if="
+    redact: false
+    message: "Destructive command detected"
+  - name: protect-credentials
+    description: Warn on credential file access
+    enforcement: warn
+    priority: 90
+    enabled: true
+    match:
+      action_type: file_access
+      arguments:
+        type: glob
+        patterns:
+          - "**/.env**"
+          - "**/*.pem**"
+          - "**/*credentials***"
+    redact: true
+    message: "Credential file access detected"

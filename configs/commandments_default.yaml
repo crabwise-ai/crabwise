@@ -1,0 +1,60 @@
+version: "1"
+commandments:
+  - name: no-destructive-commands
+    description: Warn on destructive shell commands
+    enforcement: warn
+    priority: 100
+    enabled: true
+    match:
+      action_type: command_execution
+      arguments:
+        type: regex
+        pattern: "rm\\s+-rf|mkfs|dd\\s+if="
+    redact: false
+    message: "Destructive command detected"
+
+  - name: protect-credentials
+    description: Warn on credential file access
+    enforcement: warn
+    priority: 90
+    enabled: true
+    match:
+      action_type: file_access
+      arguments:
+        type: glob
+        patterns:
+          - "**/.env**"
+          - "**/*.pem**"
+          - "**/*credentials***"
+    redact: true
+    message: "Credential file access detected"
+
+  - name: approved-models
+    description: Warn on unapproved model usage
+    enforcement: warn
+    priority: 80
+    enabled: true
+    match:
+      action_type: ai_request
+      model:
+        type: list
+        op: not_in
+        values:
+          - claude-sonnet-4-5-20250929
+          - gpt-4o
+          - gpt-4o-mini
+    redact: false
+    message: "Model is not in approved list"
+
+  - name: no-push-main
+    description: Warn on pushing directly to main/master
+    enforcement: warn
+    priority: 70
+    enabled: true
+    match:
+      action_type: command_execution
+      arguments:
+        type: regex
+        pattern: "git push.*(?:main|master)"
+    redact: false
+    message: "Direct push to main/master detected"

@@ -40,6 +40,7 @@ func NewRootCmd() *cobra.Command {
 		newStopCmd(),
 		newStatusCmd(),
 		newAgentsCmd(),
+		newCommandmentsCmd(),
 		newAuditCmd(),
 		newWatchCmd(),
 	)

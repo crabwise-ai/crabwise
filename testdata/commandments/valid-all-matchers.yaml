@@ -1,0 +1,50 @@
+version: "1"
+commandments:
+  - name: exact-action-type
+    enforcement: warn
+    priority: 40
+    enabled: true
+    match:
+      action_type: ai_request
+  - name: regex-arguments
+    enforcement: warn
+    priority: 30
+    enabled: true
+    match:
+      action_type: command_execution
+      arguments:
+        type: regex
+        pattern: "git push.*(?:main|master)"
+  - name: glob-arguments
+    enforcement: warn
+    priority: 20
+    enabled: true
+    match:
+      action_type: file_access
+      arguments:
+        type: glob
+        patterns:
+          - "**/.env**"
+          - "**/*.pem**"
+  - name: numeric-input-tokens
+    enforcement: warn
+    priority: 10
+    enabled: true
+    match:
+      action_type: ai_request
+      input_tokens:
+        type: numeric
+        op: gte
+        value: 1000
+  - name: list-approved-models
+    enforcement: warn
+    priority: 5
+    enabled: true
+    match:
+      action_type: ai_request
+      model:
+        type: list
+        op: not_in
+        values:
+          - gpt-4o
+          - claude-sonnet-4-5-20250929

@@ -2,7 +2,9 @@ package audit
 
 import (
 	"context"
+	"encoding/json"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,6 +16,25 @@ type EventStore interface {
 	InsertEvents(events []*AuditEvent) error
 	GetLastEventHash() (string, error)
 	InsertChainAnchor(epoch, eventID, eventHash string) error
+}
+
+type Evaluator interface {
+	Evaluate(e *AuditEvent) EvalResult
+}
+
+type Redactor interface {
+	Redact(e *AuditEvent, ruleTriggered bool)
+}
+
+type EvalResult struct {
+	Evaluated []string
+	Triggered []TriggeredRule
+}
+
+type TriggeredRule struct {
+	Name        string `json:"name"`
+	Enforcement string `json:"enforcement"`
+	Message     string `json:"message,omitempty"`
 }
 
 type Logger struct {
@@ -28,6 +49,9 @@ type Logger struct {
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+
+	evaluator Evaluator
+	redactor  Redactor
 }
 
 func NewLogger(store EventStore, q *queue.Queue, batchSize int, flushInterval time.Duration) (*Logger, error) {
@@ -61,6 +85,14 @@ func (l *Logger) Stop() {
 		l.cancel()
 	}
 	l.wg.Wait()
+}
+
+func (l *Logger) SetEvaluator(evaluator Evaluator) {
+	l.evaluator = evaluator
+}
+
+func (l *Logger) SetRedactor(redactor Redactor) {
+	l.redactor = redactor
 }
 
 // Subscribe returns a channel that receives new audit events.
@@ -111,6 +143,44 @@ func (l *Logger) serializerLoop(ctx context.Context) {
 	}
 
 	processEvent := func(e *AuditEvent) {
+		if !isCommandmentsExemptSystemEvent(e) {
+			result := EvalResult{
+				Evaluated: []string{},
+				Triggered: []TriggeredRule{},
+			}
+			if l.evaluator != nil {
+				result = l.evaluator.Evaluate(e)
+				if result.Evaluated == nil {
+					result.Evaluated = []string{}
+				}
+				if result.Triggered == nil {
+					result.Triggered = []TriggeredRule{}
+				}
+			}
+
+			if b, err := json.Marshal(result.Evaluated); err == nil {
+				e.CommandmentsEvaluated = string(b)
+			} else {
+				log.Printf("audit: failed to encode commandments_evaluated: %v", err)
+			}
+			if b, err := json.Marshal(result.Triggered); err == nil {
+				e.CommandmentsTriggered = string(b)
+			} else {
+				log.Printf("audit: failed to encode commandments_triggered: %v", err)
+			}
+
+			for _, triggeredRule := range result.Triggered {
+				candidate := outcomeForEnforcement(triggeredRule.Enforcement, e.AdapterType)
+				if outcomeRank(candidate) > outcomeRank(e.Outcome) {
+					e.Outcome = candidate
+				}
+			}
+
+			if l.redactor != nil {
+				l.redactor.Redact(e, len(result.Triggered) > 0)
+			}
+		}
+
 		e.PrevHash = l.prevHash
 		e.EventHash = ComputeHash(e, l.prevHash)
 		l.prevHash = e.EventHash
@@ -206,5 +276,46 @@ func (l *Logger) serializerLoop(ctx context.Context) {
 		case <-ticker.C:
 			flush()
 		}
+	}
+}
+
+func outcomeForEnforcement(enforcement, adapterType string) Outcome {
+	switch strings.ToLower(enforcement) {
+	case "warn":
+		return OutcomeWarned
+	case "block":
+		if adapterType == "log_watcher" {
+			return OutcomeWarned
+		}
+		return OutcomeBlocked
+	default:
+		return OutcomeSuccess
+	}
+}
+
+func outcomeRank(outcome Outcome) int {
+	switch outcome {
+	case OutcomeSuccess:
+		return 0
+	case OutcomeWarned:
+		return 1
+	case OutcomeFailure:
+		return 2
+	case OutcomeBlocked:
+		return 3
+	default:
+		return -1
+	}
+}
+
+func isCommandmentsExemptSystemEvent(e *AuditEvent) bool {
+	if e == nil || e.ActionType != ActionSystem {
+		return false
+	}
+	switch e.Action {
+	case "commandments_reload_ok", "commandments_reload_failed", "commandments_load_failed":
+		return true
+	default:
+		return false
 	}
 }
