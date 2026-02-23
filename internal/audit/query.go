@@ -70,7 +70,8 @@ func QueryEvents(db *sql.DB, f QueryFilter) (*QueryResult, error) {
 		"session_id, parent_session_id, working_dir, parser_version, outcome, " +
 		"commandments_evaluated, commandments_triggered, " +
 		"provider, model, input_tokens, output_tokens, cost_usd, " +
-		"adapter_id, adapter_type, raw_payload_ref, prev_hash, event_hash, redacted " +
+		"adapter_id, adapter_type, raw_payload_ref, prev_hash, event_hash, redacted, " +
+		"hostname, user_id " +
 		"FROM events " + where + " ORDER BY timestamp ASC"
 
 	if f.Limit > 0 {
@@ -97,6 +98,7 @@ func QueryEvents(db *sql.DB, f QueryFilter) (*QueryResult, error) {
 		var inputTokens, outputTokens sql.NullInt64
 		var costUSD sql.NullFloat64
 		var adapterID, adapterType, rawPayloadRef, prevHash sql.NullString
+		var hostname, userID sql.NullString
 		var redacted int
 
 		err := rows.Scan(
@@ -107,6 +109,7 @@ func QueryEvents(db *sql.DB, f QueryFilter) (*QueryResult, error) {
 			&cmdEval, &cmdTrig,
 			&provider, &model, &inputTokens, &outputTokens, &costUSD,
 			&adapterID, &adapterType, &rawPayloadRef, &prevHash, &e.EventHash, &redacted,
+			&hostname, &userID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
@@ -131,6 +134,8 @@ func QueryEvents(db *sql.DB, f QueryFilter) (*QueryResult, error) {
 		e.AdapterType = adapterType.String
 		e.RawPayloadRef = rawPayloadRef.String
 		e.PrevHash = prevHash.String
+		e.Hostname = hostname.String
+		e.UserID = userID.String
 		e.Redacted = redacted != 0
 
 		events = append(events, e)
