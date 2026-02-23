@@ -1,0 +1,507 @@
+version: "1"
+commandments:
+  - name: rule-000
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-001
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-002
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-003
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-004
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-005
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-006
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-007
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-008
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-009
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-010
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-011
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-012
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-013
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-014
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-015
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-016
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-017
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-018
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-019
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-020
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-021
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-022
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-023
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-024
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-025
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-026
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-027
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-028
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-029
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-030
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-031
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-032
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-033
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-034
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-035
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-036
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-037
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-038
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-039
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-040
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-041
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-042
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-043
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-044
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-045
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-046
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-047
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-048
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-049
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-050
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-051
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-052
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-053
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-054
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-055
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-056
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-057
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-058
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-059
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-060
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-061
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-062
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-063
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-064
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-065
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-066
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-067
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-068
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-069
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-070
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-071
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-072
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-073
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-074
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-075
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-076
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-077
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-078
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-079
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-080
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-081
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-082
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-083
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-084
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-085
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-086
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-087
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-088
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-089
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-090
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-091
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-092
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-093
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-094
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-095
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-096
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-097
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-098
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-099
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution
+  - name: rule-100
+    enforcement: warn
+    enabled: true
+    match:
+      action_type: command_execution

@@ -80,8 +80,8 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 | Precompiled matchers | Bounded execution, no catastrophic backtracking |
 | Evaluation loop | Every event checked against active commandments |
 | Warn enforcement | Flag in audit, surface in CLI output and watch |
-| Commandment CLI | `list`, `add <file>`, `test <event>` (dry-run) |
-| Starter pack | 5 default commandments (destructive cmds, credentials, spend, models, git push main) |
+| Commandment CLI | `list`, `test <event-json>`, `reload` |
+| Starter pack | 4 default commandments (destructive cmds, credentials, approved models, git push main) |
 | Audit metadata | `commandments_evaluated` + `commandments_triggered` on every event |
 | Priority/conflicts | Deterministic rule order, conflict resolution |
 | SIGHUP reload | Atomic rule swap, keep old rules on parse/compile failure |
@@ -128,7 +128,7 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 | OTel export | GenAI span emission, optional collector, local-first default |
 | Install script | `curl -fsSL ... \| sh`, platform detection, checksum verification |
 | Cross-compile | Linux amd64 + arm64 |
-| Release artifacts | `commandments.example.yaml`, README, MIT license |
+| Release artifacts | `commandments_default.yaml`, README, MIT license |
 | Benchmark suite | All SLOs verified under dual-adapter load |
 
 **Exit gates:**
@@ -202,8 +202,7 @@ Request/Response methods (standard JSON-RPC 2.0):
   audit.verify        → {valid, broken_at}
   audit.export        → {events}
   commandments.list   → [{name, enforcement, enabled}]
-  commandments.add    → {ok, errors}
-  commandments.test   → {matches}
+  commandments.test   → {evaluated, triggered}
   commandments.reload → {ok}
 
 Subscription method (for `crabwise watch`):
@@ -336,7 +335,8 @@ audit:
   raw_payload_quota: 524288000    # 500MB total
   raw_payload_gc_interval: 1h
 
-commandments_file: ~/.config/crabwise/commandments.yaml
+commandments:
+  file: ~/.config/crabwise/commandments.yaml
 
 otel:
   enabled: false
@@ -496,9 +496,10 @@ crabwise/
 │   │       ├── streaming.go        # SSE passthrough
 │   │       └── openai.go           # OpenAI-compatible adapter
 │   ├── commandments/
-│   │   ├── engine.go               # Rule evaluator
-│   │   ├── parser.go               # YAML rule parser
-│   │   └── matchers.go             # Pattern matching (regex, glob)
+│   │   ├── schema.go               # YAML rule parser + validation
+│   │   ├── engine.go               # Rule evaluator + reload
+│   │   ├── matchers.go             # Pattern matching (regex, glob, numeric, list)
+│   │   └── redaction.go            # Audit redaction pipeline
 │   ├── audit/
 │   │   ├── logger.go               # Batched SQLite writer + hash chain
 │   │   ├── events.go               # Event type definitions
@@ -533,7 +534,7 @@ crabwise/
 │   └── proxy/                      # Request/response pairs
 ├── configs/
 │   ├── default.yaml
-│   └── commandments.example.yaml
+│   └── commandments_default.yaml
 ├── .github/
 │   ├── workflows/
 │   │   ├── ci.yml                  # Lint + test + build on push/PR

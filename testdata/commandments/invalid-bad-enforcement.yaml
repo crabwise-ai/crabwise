@@ -1,0 +1,7 @@
+version: "1"
+commandments:
+  - name: bad-enforcement
+    enforcement: notify
+    enabled: true
+    match:
+      action_type: command_execution

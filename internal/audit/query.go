@@ -9,14 +9,15 @@ import (
 )
 
 type QueryFilter struct {
-	Since   *time.Time
-	Until   *time.Time
-	Agent   string
-	Action  string
-	Session string
-	Outcome string
-	Limit   int
-	Offset  int
+	Since         *time.Time
+	Until         *time.Time
+	Agent         string
+	Action        string
+	Session       string
+	Outcome       string
+	TriggeredOnly bool
+	Limit         int
+	Offset        int
 }
 
 type QueryResult struct {
@@ -51,6 +52,9 @@ func QueryEvents(db *sql.DB, f QueryFilter) (*QueryResult, error) {
 	if f.Outcome != "" {
 		conditions = append(conditions, "outcome = ?")
 		args = append(args, f.Outcome)
+	}
+	if f.TriggeredOnly {
+		conditions = append(conditions, "commandments_triggered IS NOT NULL", "commandments_triggered != ''", "commandments_triggered != '[]'")
 	}
 
 	where := ""
