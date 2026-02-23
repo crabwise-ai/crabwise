@@ -37,6 +37,9 @@ sudo cp bin/crabwise /usr/local/bin/
 ## Quick Start
 
 ```bash
+# Write default config + commandments files (~/.config/crabwise/)
+crabwise init
+
 # Start the daemon (foreground)
 crabwise start
 
@@ -45,6 +48,7 @@ crabwise status          # check daemon is running
 crabwise agents          # list discovered AI agents
 crabwise watch           # stream events live
 crabwise audit           # query event history
+crabwise audit --triggered --outcome warned  # show policy-triggered warnings
 crabwise audit --verify-integrity  # verify hash chain
 crabwise stop            # graceful shutdown
 ```
@@ -83,18 +87,39 @@ Streams audit events in real time as Claude Code generates them.
 Query the audit trail with filters:
 
 ```bash
-crabwise audit --since 1h
+crabwise audit --since 2026-02-23T00:00:00Z
 crabwise audit --action tool_call
 crabwise audit --session <id>
+crabwise audit --triggered
+crabwise audit --triggered --outcome warned
 crabwise audit --export json
 crabwise audit --verify-integrity
 ```
 
-Flags: `--since`, `--until`, `--agent`, `--action`, `--session`, `--limit`, `--export`, `--verify-integrity`
+Flags: `--since`, `--until`, `--agent`, `--action`, `--session`, `--outcome`, `--triggered`, `--limit`, `--export`, `--verify-integrity`
+
+### `crabwise commandments`
+
+Inspect and test active policy rules:
+
+```bash
+crabwise commandments list
+crabwise commandments test '{"action_type":"command_execution","action":"Bash","arguments":"git push origin main"}'
+crabwise commandments reload
+```
+
+Subcommands: `list`, `test <event-json>`, `reload`
 
 ## Config
 
 Default config is embedded in the binary. Override with `~/.config/crabwise/config.yaml`.
+
+Commandments file path is configured at:
+
+```yaml
+commandments:
+  file: ~/.config/crabwise/commandments.yaml
+```
 
 ## License
 
