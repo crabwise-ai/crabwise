@@ -10,21 +10,24 @@ import (
 // Version is set at build time via ldflags.
 var Version = "dev"
 
-const logo = `
-▄█▀      ▀█▄
-█▄█ ▄  ▄ █▄█
-█▀ ▄█▄▄█▄ ▀█
-▀██████████▀
- ▄████████▄
-█  █    █  █
+const orange = "\033[38;5;208m"
+const reset = "\033[0m"
 
-`
+func banner() string {
+	return "" +
+		orange + "▄█▀      ▀█▄" + reset + "  Crabwise AI v" + Version + "\n" +
+		orange + "█▄█ ▄  ▄ █▄█" + reset + "  Monitor and audit AI agent activity\n" +
+		orange + "█▀ ▄█▄▄█▄ ▀█" + reset + "  https://github.com/crabwise-ai/crabwise\n" +
+		orange + "▀██████████▀" + reset + "\n" +
+		orange + " ▄████████▄" + reset + "\n" +
+		orange + "█  █    █  █" + reset + "\n"
+}
 
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "crabwise",
 		Short: "Monitor and audit AI agent activity",
-		Long:  logo + "Crabwise is a local-first daemon that monitors AI agent activity, maintains a tamper-evident audit trail, and enforces safety rules.",
+		Long:  banner(),
 		CompletionOptions: cobra.CompletionOptions{
 			DisableDefaultCmd: true,
 		},
