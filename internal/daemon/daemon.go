@@ -50,17 +50,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	ctx, d.cancel = context.WithCancel(ctx)
 	d.startTime = time.Now()
 
-	// Resolve origin identity once at startup
+	// Resolve origin identity once at startup — UID is kernel-verified, not spoofable
 	d.hostname, _ = os.Hostname()
-	if u, err := os.UserHomeDir(); err == nil {
-		// Use username from env, fallback to UID
-		d.userID = os.Getenv("USER")
-		if d.userID == "" {
-			d.userID = filepath.Base(u)
-		}
-	} else {
-		d.userID = strconv.Itoa(os.Getuid())
-	}
+	d.userID = strconv.Itoa(os.Getuid())
 
 	// PID file
 	if err := d.writePID(); err != nil {
