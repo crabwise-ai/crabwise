@@ -53,6 +53,8 @@ type AuditEvent struct {
 	AdapterID             string     `json:"adapter_id,omitempty"`
 	AdapterType           string     `json:"adapter_type,omitempty"`
 	RawPayloadRef         string     `json:"raw_payload_ref,omitempty"`
+	Hostname              string     `json:"hostname,omitempty"`
+	UserID                string     `json:"user_id,omitempty"`
 	PrevHash              string     `json:"prev_hash,omitempty"`
 	EventHash             string     `json:"event_hash,omitempty"`
 	Redacted              bool       `json:"redacted,omitempty"`
@@ -90,6 +92,8 @@ func CanonicalBytes(e *AuditEvent) []byte {
 	buf = appendString(buf, e.AdapterID)
 	buf = appendString(buf, e.AdapterType)
 	buf = appendString(buf, e.RawPayloadRef)
+	buf = appendString(buf, e.Hostname)
+	buf = appendString(buf, e.UserID)
 	buf = appendString(buf, e.PrevHash)
 	// EventHash excluded — it's the output
 	buf = appendBool(buf, e.Redacted)

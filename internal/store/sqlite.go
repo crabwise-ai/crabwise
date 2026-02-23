@@ -15,6 +15,9 @@ import (
 //go:embed migrations/001_initial.sql
 var migration001 string
 
+//go:embed migrations/002_add_origin.sql
+var migration002 string
+
 type Store struct {
 	db *sql.DB
 }
@@ -56,13 +59,19 @@ func (s *Store) migrate() error {
 	var version int
 	err := s.db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM schema_version").Scan(&version)
 	if err != nil {
-		// Table doesn't exist yet, run migration
-		_, err = s.db.Exec(migration001)
-		return err
+		// Table doesn't exist yet — start from 0
+		version = 0
 	}
 	if version < 1 {
-		_, err = s.db.Exec(migration001)
-		return err
+		if _, err = s.db.Exec(migration001); err != nil {
+			return err
+		}
+		version = 1
+	}
+	if version < 2 {
+		if _, err = s.db.Exec(migration002); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -83,8 +92,9 @@ func (s *Store) InsertEvents(events []*audit.AuditEvent) error {
 		session_id, parent_session_id, working_dir, parser_version, outcome,
 		commandments_evaluated, commandments_triggered,
 		provider, model, input_tokens, output_tokens, cost_usd,
-		adapter_id, adapter_type, raw_payload_ref, prev_hash, event_hash, redacted
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		adapter_id, adapter_type, raw_payload_ref, prev_hash, event_hash, redacted,
+		hostname, user_id
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare: %w", err)
 	}
@@ -105,6 +115,7 @@ func (s *Store) InsertEvents(events []*audit.AuditEvent) error {
 			e.CommandmentsEvaluated, e.CommandmentsTriggered,
 			e.Provider, e.Model, e.InputTokens, e.OutputTokens, e.CostUSD,
 			e.AdapterID, e.AdapterType, e.RawPayloadRef, e.PrevHash, e.EventHash, redacted,
+			e.Hostname, e.UserID,
 		)
 		if err != nil {
 			return fmt.Errorf("insert event %s: %w", e.ID, err)

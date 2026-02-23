@@ -31,6 +31,9 @@ type Daemon struct {
 	watcher   *logwatcher.LogWatcher
 	startTime time.Time
 
+	hostname string
+	userID   string
+
 	eventCh chan *audit.AuditEvent
 	cancel  context.CancelFunc
 }
@@ -46,6 +49,18 @@ func New(cfg *Config) *Daemon {
 func (d *Daemon) Run(ctx context.Context) error {
 	ctx, d.cancel = context.WithCancel(ctx)
 	d.startTime = time.Now()
+
+	// Resolve origin identity once at startup
+	d.hostname, _ = os.Hostname()
+	if u, err := os.UserHomeDir(); err == nil {
+		// Use username from env, fallback to UID
+		d.userID = os.Getenv("USER")
+		if d.userID == "" {
+			d.userID = filepath.Base(u)
+		}
+	} else {
+		d.userID = strconv.Itoa(os.Getuid())
+	}
 
 	// PID file
 	if err := d.writePID(); err != nil {
@@ -137,6 +152,8 @@ func (d *Daemon) forwardEvents(ctx context.Context) {
 			if !ok {
 				return
 			}
+			evt.Hostname = d.hostname
+			evt.UserID = d.userID
 			d.queue.Send(evt)
 		}
 	}
