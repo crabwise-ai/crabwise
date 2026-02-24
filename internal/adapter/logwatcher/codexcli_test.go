@@ -173,6 +173,32 @@ func TestParseCodexResponseItem_ReasoningIgnored(t *testing.T) {
 	}
 }
 
+func TestParseCodexResponseItem_WebSearchCallClassifiedAsNetwork(t *testing.T) {
+	line := `{"timestamp":"2026-02-24T18:21:41.000Z","type":"response_item","payload":{"type":"web_search_call","arguments":{"query":"weather in toronto"}}}`
+
+	events, err := parseCodexLine([]byte(line), "/tmp/rollout-2026-02-24T18-00-00-019c7b9d-932d-7bb3-ae9b-e8e13b639117.jsonl", 12)
+	if err != nil {
+		t.Fatalf("parse web_search_call: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	e := events[0]
+	if e.ActionType != audit.ActionToolCall {
+		t.Fatalf("expected tool_call action type for network tools, got %s", e.ActionType)
+	}
+	if e.Action != "web_search_call" {
+		t.Fatalf("expected fallback tool name from type, got %q", e.Action)
+	}
+	if e.ToolCategory != classify.CategoryNetwork || e.ToolEffect != classify.EffectExecute {
+		t.Fatalf("expected network/execute taxonomy, got %s/%s", e.ToolCategory, e.ToolEffect)
+	}
+	if e.ClassificationSource != classify.SourcePattern {
+		t.Fatalf("expected pattern classification source, got %s", e.ClassificationSource)
+	}
+}
+
 func TestParseCodexFixture_Basic(t *testing.T) {
 	data, err := os.ReadFile("../../../testdata/codex-cli/session-basic.jsonl")
 	if err != nil {

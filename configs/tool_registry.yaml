@@ -69,6 +69,12 @@ providers:
       search_file:
         category: file.search
         effect: read_only
+    patterns:
+      - match:
+          name_glob: ["web_search*", "*web_search*"]
+        set:
+          category: network
+          effect: execute
 
   _default:
     tools:
