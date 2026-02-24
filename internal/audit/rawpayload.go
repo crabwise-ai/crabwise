@@ -1,7 +1,6 @@
 package audit
 
 import (
-	"compress/zstd"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 type RawPayloadManager struct {
@@ -47,15 +48,15 @@ func (m *RawPayloadManager) Write(eventID string, payload []byte) (string, error
 	}
 	defer f.Close()
 
-	zw, err := zstd.NewWriter(f)
+	enc, err := zstd.NewWriter(f)
 	if err != nil {
 		return "", err
 	}
-	if _, err := zw.Write(payload); err != nil {
-		_ = zw.Close()
+	if _, err := enc.Write(payload); err != nil {
+		_ = enc.Close()
 		return "", err
 	}
-	if err := zw.Close(); err != nil {
+	if err := enc.Close(); err != nil {
 		return "", err
 	}
 
@@ -72,13 +73,13 @@ func (m *RawPayloadManager) Read(ref string) ([]byte, error) {
 	}
 	defer f.Close()
 
-	zr, err := zstd.NewReader(f)
+	dec, err := zstd.NewReader(f)
 	if err != nil {
 		return nil, err
 	}
-	defer zr.Close()
+	defer dec.Close()
 
-	return io.ReadAll(zr)
+	return io.ReadAll(dec)
 }
 
 func (m *RawPayloadManager) GC(now time.Time) error {

@@ -10,6 +10,12 @@ import (
 	"time"
 )
 
+func init() {
+	RegisterTransport("openai", func(cfg ProviderConfig, timeout time.Duration) Transport {
+		return NewOpenAITransport(cfg, timeout)
+	})
+}
+
 type OpenAITransport struct {
 	client   *http.Client
 	authMode string
@@ -78,11 +84,11 @@ func (t *OpenAITransport) ParseStreamEvent(data []byte) (StreamEvent, error) {
 
 	if usage, ok := payload["usage"].(map[string]interface{}); ok {
 		if v, ok := usage["prompt_tokens"]; ok {
-			out.InputTokens = asInt64(v)
+			out.InputTokens = toInt64(v)
 			out.HasUsage = true
 		}
 		if v, ok := usage["completion_tokens"]; ok {
-			out.OutputTokens = asInt64(v)
+			out.OutputTokens = toInt64(v)
 			out.HasUsage = true
 		}
 	}
@@ -97,4 +103,20 @@ func (t *OpenAITransport) ParseStreamEvent(data []byte) (StreamEvent, error) {
 	}
 
 	return out, nil
+}
+
+func toInt64(v interface{}) int64 {
+	switch x := v.(type) {
+	case float64:
+		return int64(x)
+	case int:
+		return int64(x)
+	case int64:
+		return x
+	case json.Number:
+		n, _ := x.Int64()
+		return n
+	default:
+		return 0
+	}
 }

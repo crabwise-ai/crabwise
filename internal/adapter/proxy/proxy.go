@@ -6,16 +6,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/crabwise-ai/crabwise/configs"
 	"github.com/crabwise-ai/crabwise/internal/audit"
 	"github.com/crabwise-ai/crabwise/internal/classify"
 )
@@ -38,10 +40,13 @@ type Proxy struct {
 	classifier classify.Classifier
 	events     chan<- *audit.AuditEvent
 
-	router    *Router
-	providers map[string]*ProviderRuntime
-	httpSrv   *http.Server
-	metrics   Metrics
+	router         *Router
+	providers      map[string]*ProviderRuntime
+	providersMu    sync.RWMutex
+	httpSrv        *http.Server
+	metrics        Metrics
+	rawPayloads    RawPayloadWriter
+	extraRedactREs []*regexp.Regexp
 }
 
 func (p *Proxy) SetEvaluator(e Evaluator) {
@@ -59,25 +64,41 @@ func New(cfg Config, evaluator Evaluator, classifier classify.Classifier, events
 		classifier = classify.NewFallbackRegistry()
 	}
 
+	providers, err := buildProviders(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	router, err := NewRouter(cfg.DefaultProvider, providers)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Proxy{
+		cfg:            cfg,
+		evaluator:      evaluator,
+		classifier:     classifier,
+		events:         events,
+		router:         router,
+		providers:      providers,
+		extraRedactREs: CompilePatterns(cfg.RedactPatterns),
+	}, nil
+}
+
+func buildProviders(cfg Config) (map[string]*ProviderRuntime, error) {
 	providers := make(map[string]*ProviderRuntime, len(cfg.Providers))
 
 	for name, providerCfg := range cfg.Providers {
 		pc := providerCfg
 		pc.Name = name
 
-		var transport Transport
-		switch strings.ToLower(name) {
-		case "openai":
-			transport = NewOpenAITransport(pc, cfg.UpstreamTimeout)
-		default:
-			continue
+		factory, ok := lookupTransportFactory(name)
+		if !ok {
+			return nil, fmt.Errorf("no transport registered for provider %q (registered transports: %s)", name, registeredTransportNames())
 		}
+		transport := factory(pc, cfg.UpstreamTimeout)
 
-		var fallback []byte
-		if name == "openai" {
-			fallback = configs.DefaultOpenAIProxyMappingYAML
-		}
-		spec, err := LoadProviderSpec(cfg.MappingsDir, name, fallback)
+		spec, err := LoadProviderSpec(cfg.MappingsDir, name, embeddedFallback(name))
 		if err != nil {
 			return nil, fmt.Errorf("load provider mapping %s: %w", name, err)
 		}
@@ -89,20 +110,55 @@ func New(cfg Config, evaluator Evaluator, classifier classify.Classifier, events
 			Mapping:   spec,
 		}
 	}
+	return providers, nil
+}
 
-	router, err := NewRouter(cfg.DefaultProvider, providers)
+func embeddedFallback(name string) []byte {
+	switch strings.ToLower(name) {
+	case "openai":
+		return embeddedOpenAIMapping
+	default:
+		return nil
+	}
+}
+
+// embeddedOpenAIMapping is set by configs package init.
+var embeddedOpenAIMapping []byte
+
+func SetEmbeddedOpenAIMapping(data []byte) {
+	embeddedOpenAIMapping = data
+}
+
+func registeredTransportNames() string {
+	transportsMu.RLock()
+	defer transportsMu.RUnlock()
+	names := make([]string, 0, len(transportFactories))
+	for n := range transportFactories {
+		names = append(names, n)
+	}
+	return strings.Join(names, ", ")
+}
+
+func (p *Proxy) SetRawPayloadWriter(w RawPayloadWriter) {
+	p.rawPayloads = w
+}
+
+// ReloadMappings reloads provider mapping specs from disk with atomic swap.
+func (p *Proxy) ReloadMappings() error {
+	newProviders, err := buildProviders(p.cfg)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("reload mappings: %w", err)
+	}
+	newRouter, err := NewRouter(p.cfg.DefaultProvider, newProviders)
+	if err != nil {
+		return fmt.Errorf("reload router: %w", err)
 	}
 
-	return &Proxy{
-		cfg:        cfg,
-		evaluator:  evaluator,
-		classifier: classifier,
-		events:     events,
-		router:     router,
-		providers:  providers,
-	}, nil
+	p.providersMu.Lock()
+	p.providers = newProviders
+	p.router = newRouter
+	p.providersMu.Unlock()
+	return nil
 }
 
 func (p *Proxy) Start(ctx context.Context) error {
@@ -169,7 +225,9 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	p.providersMu.RLock()
 	providerRuntime, providerName, err := p.router.Resolve(r)
+	p.providersMu.RUnlock()
 	if err != nil {
 		writeProxyError(w, http.StatusBadRequest, "routing_error", err.Error(), eventID)
 		return
@@ -194,13 +252,14 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 			"endpoint":         r.URL.Path,
 			"mapping_degraded": mappingDegraded,
 		})
+		p.maybeWriteRawPayload(preflight, body)
 		p.emit(preflight)
 		writeProxyError(w, http.StatusForbidden, "policy_violation", "request blocked by commandments", eventID)
 		return
 	}
 
 	if p.cfg.RedactEgressDefault {
-		redacted, changed := RedactPayload(body)
+		redacted, changed := RedactPayload(body, p.extraRedactREs)
 		if changed {
 			body = redacted
 			p.appendArgumentMetadata(preflight, map[string]interface{}{"egress_redacted": true})
@@ -254,6 +313,9 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	normResp := NormalizedResponse{UpstreamStatus: upstreamResp.StatusCode, MappingDegraded: mappingDegraded}
 	contentType := strings.ToLower(upstreamResp.Header.Get("Content-Type"))
+
+	var firstTokenAt time.Time
+
 	if normalizedReq.Stream || strings.Contains(contentType, "text/event-stream") {
 		streamTel, streamErr := proxySSEStream(w, upstreamResp.Body, providerRuntime.Transport, p.cfg.StreamIdleTimeout)
 		if streamErr != nil {
@@ -267,6 +329,7 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 		if streamTel.Model != "" {
 			normResp.Model = streamTel.Model
 		}
+		firstTokenAt = streamTel.FirstTokenAt
 	} else {
 		respBody, readErr := io.ReadAll(upstreamResp.Body)
 		if readErr != nil {
@@ -278,14 +341,8 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write(respBody)
 			responseMapped, respMapErr := NormalizeResponse(providerRuntime.Mapping, respBody, upstreamResp.StatusCode)
 			if respMapErr != nil {
-				if p.cfg.MappingStrictMode {
-					normResp.ErrorType = "mapping_error"
-					normResp.ErrorMessage = respMapErr.Error()
-					normResp.MappingDegraded = true
-				} else {
-					normResp.MappingDegraded = true
-					p.metrics.MappingDegraded.Add(1)
-				}
+				normResp.MappingDegraded = true
+				p.metrics.MappingDegraded.Add(1)
 			} else {
 				normResp = responseMapped
 				normResp.MappingDegraded = mappingDegraded
@@ -298,7 +355,9 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	preflight.InputTokens = normResp.InputTokens
 	preflight.OutputTokens = normResp.OutputTokens
-	preflight.CostUSD = ComputeCostUSD(p.cfg.Pricing, preflight.Model, preflight.InputTokens, preflight.OutputTokens)
+
+	costResult := ComputeCost(p.cfg.Pricing, preflight.Model, preflight.InputTokens, preflight.OutputTokens)
+	preflight.CostUSD = costResult.CostUSD
 
 	meta := map[string]interface{}{
 		"request_id":       eventID,
@@ -315,6 +374,12 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 	if normResp.ErrorMessage != "" {
 		meta["error_message"] = normResp.ErrorMessage
 	}
+	if costResult.UnknownModel {
+		meta["cost_unknown_model"] = true
+	}
+	if !firstTokenAt.IsZero() {
+		meta["first_token_ms"] = firstTokenAt.Sub(start).Milliseconds()
+	}
 
 	if upstreamResp.StatusCode >= 400 || normResp.ErrorType != "" {
 		preflight.Outcome = audit.OutcomeFailure
@@ -322,6 +387,7 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 		preflight.Outcome = audit.OutcomeSuccess
 	}
 	p.appendArgumentMetadata(preflight, meta)
+	p.maybeWriteRawPayload(preflight, body)
 	p.emit(preflight)
 }
 
@@ -348,8 +414,9 @@ func (p *Proxy) normalizeRequest(runtime *ProviderRuntime, provider, endpoint st
 
 	for i := range normalized.Tools {
 		tool := &normalized.Tools[i]
-		result := p.classifier.Classify(provider, tool.Name, classify.ExtractArgKeys(tool.RawArgs))
-		tool.ArgKeys = classify.ExtractArgKeys(tool.RawArgs)
+		argKeys := classify.ExtractArgKeys(tool.RawArgs)
+		result := p.classifier.Classify(provider, tool.Name, argKeys)
+		tool.ArgKeys = argKeys
 		tool.Category = result.Category
 		tool.Effect = result.Effect
 		tool.TaxonomyVersion = result.TaxonomyVersion
@@ -381,6 +448,19 @@ func (p *Proxy) buildAuditEvent(eventID string, ts time.Time, provider string, r
 		e.TaxonomyVersion = first.TaxonomyVersion
 		e.ClassificationSource = first.ClassificationSource
 	}
+
+	if len(req.Tools) > 1 {
+		toolsSummary := make([]map[string]string, len(req.Tools))
+		for i, t := range req.Tools {
+			toolsSummary[i] = map[string]string{
+				"name":     t.Name,
+				"category": t.Category,
+				"effect":   t.Effect,
+			}
+		}
+		p.appendArgumentMetadata(e, map[string]interface{}{"tools": toolsSummary})
+	}
+
 	return e
 }
 
@@ -402,6 +482,20 @@ func (p *Proxy) emit(e *audit.AuditEvent) {
 		return
 	}
 	p.events <- e
+}
+
+func (p *Proxy) maybeWriteRawPayload(e *audit.AuditEvent, body []byte) {
+	if p.rawPayloads == nil || e == nil || len(body) == 0 {
+		return
+	}
+	ref, err := p.rawPayloads.Write(e.ID, body)
+	if err != nil {
+		log.Printf("proxy: raw payload write error: %v", err)
+		return
+	}
+	if ref != "" {
+		e.RawPayloadRef = ref
+	}
 }
 
 func (p *Proxy) buildUpstreamRequest(incoming *http.Request, runtime *ProviderRuntime, body []byte, requestID string) (*http.Request, error) {

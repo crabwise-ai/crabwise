@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
+	"github.com/tidwall/gjson"
 	"gopkg.in/yaml.v3"
 )
 
@@ -90,9 +90,8 @@ func LoadProviderSpec(mappingsDir, provider string, fallback []byte) (*Spec, err
 }
 
 func NormalizeRequest(spec *Spec, provider, endpoint string, body []byte) (NormalizedRequest, error) {
-	var payload interface{}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return NormalizedRequest{}, fmt.Errorf("parse request body: %w", err)
+	if !gjson.ValidBytes(body) {
+		return NormalizedRequest{}, fmt.Errorf("parse request body: invalid JSON")
 	}
 
 	out := NormalizedRequest{
@@ -100,31 +99,31 @@ func NormalizeRequest(spec *Spec, provider, endpoint string, body []byte) (Norma
 		Endpoint: endpoint,
 	}
 
-	if v, ok := extractWithRule(payload, spec.Request.Model); ok {
-		out.Model = asString(v)
-	}
-	if v, ok := extractWithRule(payload, spec.Request.Stream); ok {
-		out.Stream = asBool(v)
-	}
-	if v, ok := extractWithRule(payload, spec.Request.InputSummary); ok {
-		out.InputSummary = asString(v)
-	}
+	out.Model = extractString(body, spec.Request.Model)
+	out.Stream = extractBool(body, spec.Request.Stream)
+	out.InputSummary = extractString(body, spec.Request.InputSummary)
 
-	if arr, ok := extractPath(payload, spec.Request.Tools.Path); ok {
-		if tools, ok := arr.([]interface{}); ok {
-			out.Tools = make([]NormalizedTool, 0, len(tools))
-			for _, t := range tools {
+	toolsPath := toGjsonPath(spec.Request.Tools.Path)
+	if toolsPath != "" {
+		toolsResult := gjson.GetBytes(body, toolsPath)
+		if toolsResult.IsArray() {
+			toolsResult.ForEach(func(_, value gjson.Result) bool {
+				raw := []byte(value.Raw)
 				tool := NormalizedTool{}
-				if v, ok := extractWithRule(t, spec.Request.Tools.Each.Name); ok {
-					tool.Name = asString(v)
-				}
-				if v, ok := extractWithRule(t, spec.Request.Tools.Each.RawArgs); ok {
-					tool.RawArgs = mustBytes(v)
+				tool.Name = extractString(raw, spec.Request.Tools.Each.Name)
+				if spec.Request.Tools.Each.RawArgs.Serialize == "json" {
+					r := gjsonGet(raw, spec.Request.Tools.Each.RawArgs)
+					if r.Exists() {
+						tool.RawArgs = []byte(r.Raw)
+					}
+				} else {
+					tool.RawArgs = []byte(extractString(raw, spec.Request.Tools.Each.RawArgs))
 				}
 				if tool.Name != "" {
 					out.Tools = append(out.Tools, tool)
 				}
-			}
+				return true
+			})
 		}
 	}
 
@@ -136,131 +135,99 @@ func NormalizeResponse(spec *Spec, body []byte, upstreamStatus int) (NormalizedR
 	if len(body) == 0 {
 		return out, nil
 	}
-
-	var payload interface{}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return out, fmt.Errorf("parse response body: %w", err)
+	if !gjson.ValidBytes(body) {
+		return out, fmt.Errorf("parse response body: invalid JSON")
 	}
 
-	if v, ok := extractWithRule(payload, spec.Response.Model); ok {
-		out.Model = asString(v)
-	}
-	if v, ok := extractWithRule(payload, spec.Response.FinishReason); ok {
-		out.FinishReason = asString(v)
-	}
-	if v, ok := extractWithRule(payload, spec.Response.Usage.InputTokens); ok {
-		out.InputTokens = asInt64(v)
-	}
-	if v, ok := extractWithRule(payload, spec.Response.Usage.OutputTokens); ok {
-		out.OutputTokens = asInt64(v)
-	}
-	if v, ok := extractWithRule(payload, spec.Response.Error.ErrorType); ok {
-		out.ErrorType = asString(v)
-	}
-	if v, ok := extractWithRule(payload, spec.Response.Error.ErrorMessage); ok {
-		out.ErrorMessage = asString(v)
-	}
+	out.Model = extractString(body, spec.Response.Model)
+	out.FinishReason = extractString(body, spec.Response.FinishReason)
+	out.InputTokens = extractInt64(body, spec.Response.Usage.InputTokens)
+	out.OutputTokens = extractInt64(body, spec.Response.Usage.OutputTokens)
+	out.ErrorType = extractString(body, spec.Response.Error.ErrorType)
+	out.ErrorMessage = extractString(body, spec.Response.Error.ErrorMessage)
 
 	return out, nil
 }
 
-func ApplyStreamSpec(spec *Spec, event map[string]interface{}, out *NormalizedResponse) {
-	if spec == nil || out == nil || event == nil {
+func ApplyStreamSpec(spec *Spec, rawEvent []byte, out *NormalizedResponse) {
+	if spec == nil || out == nil || len(rawEvent) == 0 {
 		return
 	}
-	if v, ok := extractWithRule(event, spec.Stream.Usage.InputTokens); ok {
-		out.InputTokens = asInt64(v)
+	if !gjson.ValidBytes(rawEvent) {
+		return
 	}
-	if v, ok := extractWithRule(event, spec.Stream.Usage.OutputTokens); ok {
-		out.OutputTokens = asInt64(v)
+
+	if v := extractInt64(rawEvent, spec.Stream.Usage.InputTokens); v != 0 {
+		out.InputTokens = v
 	}
-	if v, ok := extractWithRule(event, spec.Stream.FinishReason); ok {
-		fr := asString(v)
-		if fr != "" {
-			out.FinishReason = fr
-		}
+	if v := extractInt64(rawEvent, spec.Stream.Usage.OutputTokens); v != 0 {
+		out.OutputTokens = v
+	}
+	if v := extractString(rawEvent, spec.Stream.FinishReason); v != "" {
+		out.FinishReason = v
 	}
 }
 
-func extractWithRule(payload interface{}, rule PathRule) (interface{}, bool) {
-	if rule.Path == "" {
+func extractString(data []byte, rule PathRule) string {
+	r := gjsonGet(data, rule)
+	if !r.Exists() {
 		if rule.Default != nil {
-			return rule.Default, true
+			return fmt.Sprint(rule.Default)
 		}
-		return nil, false
+		return ""
 	}
 
-	value, ok := extractPath(payload, rule.Path)
-	if !ok {
-		if rule.Default != nil {
-			return rule.Default, true
-		}
-		return nil, false
-	}
+	value := r.String()
 
 	if len(rule.Map) > 0 {
-		if mapped, ok := rule.Map[asString(value)]; ok {
+		if mapped, ok := rule.Map[value]; ok {
 			value = mapped
 		}
 	}
-
-	if rule.Serialize == "json" {
-		value = mustBytes(value)
+	if rule.Truncate > 0 && len(value) > rule.Truncate {
+		value = value[:rule.Truncate]
 	}
-
-	if rule.Truncate > 0 {
-		s := asString(value)
-		if len(s) > rule.Truncate {
-			value = s[:rule.Truncate]
-		}
-	}
-
-	return value, true
+	return value
 }
 
-func extractPath(payload interface{}, rawPath string) (interface{}, bool) {
-	p := normalizeSelector(rawPath)
+func extractBool(data []byte, rule PathRule) bool {
+	r := gjsonGet(data, rule)
+	if !r.Exists() {
+		if rule.Default != nil {
+			switch v := rule.Default.(type) {
+			case bool:
+				return v
+			case string:
+				return strings.EqualFold(v, "true")
+			}
+		}
+		return false
+	}
+	return r.Bool()
+}
+
+func extractInt64(data []byte, rule PathRule) int64 {
+	r := gjsonGet(data, rule)
+	if !r.Exists() {
+		return 0
+	}
+	return r.Int()
+}
+
+func gjsonGet(data []byte, rule PathRule) gjson.Result {
+	p := toGjsonPath(rule.Path)
 	if p == "" {
-		return payload, true
+		return gjson.Result{}
 	}
-
-	current := payload
-	for _, seg := range strings.Split(p, ".") {
-		if seg == "" {
-			continue
-		}
-
-		// support gjson-like array index token (e.g. choices.0.value)
-		if idx, err := strconv.Atoi(seg); err == nil {
-			arr, ok := current.([]interface{})
-			if !ok {
-				return nil, false
-			}
-			if idx < 0 {
-				idx = len(arr) + idx
-			}
-			if idx < 0 || idx >= len(arr) {
-				return nil, false
-			}
-			current = arr[idx]
-			continue
-		}
-
-		obj, ok := current.(map[string]interface{})
-		if !ok {
-			return nil, false
-		}
-		next, ok := obj[seg]
-		if !ok {
-			return nil, false
-		}
-		current = next
-	}
-	return current, true
+	return gjson.GetBytes(data, p)
 }
 
-func normalizeSelector(selector string) string {
+// toGjsonPath converts $.foo[0].bar notation to gjson dot notation: foo.0.bar
+func toGjsonPath(selector string) string {
 	s := strings.TrimSpace(selector)
+	if s == "" {
+		return ""
+	}
 	s = strings.TrimPrefix(s, "$.")
 	s = strings.TrimPrefix(s, "$")
 	s = strings.ReplaceAll(s, "[", ".")
@@ -270,59 +237,7 @@ func normalizeSelector(selector string) string {
 	return s
 }
 
-func asString(v interface{}) string {
-	switch x := v.(type) {
-	case string:
-		return x
-	case json.RawMessage:
-		return string(x)
-	case []byte:
-		return string(x)
-	case nil:
-		return ""
-	default:
-		return fmt.Sprint(x)
-	}
-}
-
-func asBool(v interface{}) bool {
-	switch x := v.(type) {
-	case bool:
-		return x
-	case string:
-		return strings.EqualFold(x, "true")
-	default:
-		return false
-	}
-}
-
-func asInt64(v interface{}) int64 {
-	switch x := v.(type) {
-	case int:
-		return int64(x)
-	case int64:
-		return x
-	case float64:
-		return int64(x)
-	case json.Number:
-		n, _ := x.Int64()
-		return n
-	case string:
-		n, _ := strconv.ParseInt(x, 10, 64)
-		return n
-	default:
-		return 0
-	}
-}
-
-func mustBytes(v interface{}) []byte {
-	switch x := v.(type) {
-	case []byte:
-		return x
-	case string:
-		return []byte(x)
-	default:
-		b, _ := json.Marshal(v)
-		return b
-	}
+func mustJSON(v interface{}) []byte {
+	b, _ := json.Marshal(v)
+	return b
 }
