@@ -163,3 +163,47 @@ func TestExtractArgKeysDeterministic(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkClassifyExactAndHeuristicPaths(b *testing.B) {
+	registry, err := NewRegistry(RegistryConfig{
+		Version: "1",
+		Providers: map[string]ProviderRegistry{
+			"openai": {
+				Tools: map[string]ToolMapping{
+					"run_shell_command": {Category: CategoryShell, Effect: EffectExecute},
+				},
+			},
+			"_default": {
+				Tools: map[string]ToolMapping{
+					"bash": {Category: CategoryShell, Effect: EffectExecute},
+				},
+			},
+		},
+		Heuristics: []RuleSpec{
+			{
+				Match: RuleMatch{ArgKeysAny: []string{"command", "cmd"}},
+				Set:   ToolMapping{Category: CategoryShell, Effect: EffectExecute},
+			},
+		},
+	})
+	if err != nil {
+		b.Fatalf("new registry: %v", err)
+	}
+
+	exactArgKeys := []string{"command", "cwd"}
+	heuristicArgKeys := []string{"cmd"}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		exact := registry.Classify("openai", "run_shell_command", exactArgKeys)
+		if exact.ClassificationSource != SourceExact {
+			b.Fatalf("expected exact, got %s", exact.ClassificationSource)
+		}
+
+		heuristic := registry.Classify("openai", "unknown_tool", heuristicArgKeys)
+		if heuristic.ClassificationSource != SourceHeuristic {
+			b.Fatalf("expected heuristic, got %s", heuristic.ClassificationSource)
+		}
+	}
+}
