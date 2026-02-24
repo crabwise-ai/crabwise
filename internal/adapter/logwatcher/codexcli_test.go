@@ -122,6 +122,44 @@ func TestParseCodexResponseItem_ToolCallClassification(t *testing.T) {
 	}
 }
 
+func TestParseCodexResponseItem_FunctionCallExecCommandUsesCommandExecution(t *testing.T) {
+	sessionPath := "/tmp/rollout-2026-02-24T11-00-00-019c7b9d-932d-7bb3-ae9b-e8e13b639117.jsonl"
+	contextLine := `{"timestamp":"2026-02-24T11:00:01.000Z","type":"turn_context","payload":{"cwd":"/tmp","model":"gpt-5.1-codex-mini","approval_policy":"on-request"}}`
+	toolLine := `{"timestamp":"2026-02-24T11:00:02.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"git status -sb\"}"}}`
+
+	if _, err := parseCodexLine([]byte(contextLine), sessionPath, 1); err != nil {
+		t.Fatalf("parse turn_context: %v", err)
+	}
+
+	events, err := parseCodexLine([]byte(toolLine), sessionPath, 2)
+	if err != nil {
+		t.Fatalf("parse function_call: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	e := events[0]
+	if e.ActionType != audit.ActionCommandExecution {
+		t.Fatalf("expected command_execution, got %s", e.ActionType)
+	}
+	if e.Model != "gpt-5.1-codex-mini" {
+		t.Fatalf("expected model propagated from turn_context, got %q", e.Model)
+	}
+}
+
+func TestParseCodexResponseItem_ReasoningIgnored(t *testing.T) {
+	line := `{"timestamp":"2026-02-24T11:00:02.000Z","type":"response_item","payload":{"type":"reasoning","summary":[]}}`
+
+	events, err := parseCodexLine([]byte(line), "/tmp/rollout-2026-02-24T11-00-00-019c7b9d-932d-7bb3-ae9b-e8e13b639117.jsonl", 2)
+	if err != nil {
+		t.Fatalf("parse reasoning: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("expected 0 events for reasoning, got %d", len(events))
+	}
+}
+
 func TestParseCodexFixture_Basic(t *testing.T) {
 	data, err := os.ReadFile("../../../testdata/codex-cli/session-basic.jsonl")
 	if err != nil {
