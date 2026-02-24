@@ -102,6 +102,11 @@ providers:
 
     patterns:
       - match:
+          name_glob: ["web_search*", "*web_search*"]
+        set:
+          category: network
+          effect: execute
+      - match:
           name_glob: ["read_*", "*_read"]
         set:
           category: file.read

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -205,5 +207,92 @@ func BenchmarkClassifyExactAndHeuristicPaths(b *testing.B) {
 		if heuristic.ClassificationSource != SourceHeuristic {
 			b.Fatalf("expected heuristic, got %s", heuristic.ClassificationSource)
 		}
+	}
+}
+
+func TestClassifyProviderOmittedWebSearchConsistentWithOpenAI(t *testing.T) {
+	r, err := NewRegistry(RegistryConfig{
+		Version: "1",
+		Providers: map[string]ProviderRegistry{
+			"openai": {
+				Patterns: []RuleSpec{
+					{
+						Match: RuleMatch{NameGlob: []string{"web_search*", "*web_search*"}},
+						Set:   ToolMapping{Category: CategoryNetwork, Effect: EffectExecute},
+					},
+				},
+			},
+			"_default": {
+				Patterns: []RuleSpec{
+					{
+						Match: RuleMatch{NameGlob: []string{"web_search*", "*web_search*"}},
+						Set:   ToolMapping{Category: CategoryNetwork, Effect: EffectExecute},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+
+	openai := r.Classify("openai", "web_search_call", nil)
+	defaultProvider := r.Classify("", "web_search_call", nil)
+	if openai.Category != CategoryNetwork || openai.Effect != EffectExecute {
+		t.Fatalf("expected openai web_search_call to map to network/execute, got %+v", openai)
+	}
+	if defaultProvider.Category != openai.Category || defaultProvider.Effect != openai.Effect {
+		t.Fatalf("expected omitted-provider classification to match openai, got default=%+v openai=%+v", defaultProvider, openai)
+	}
+}
+
+func TestLoadRegistryWarnsWhenUserRegistryLikelyStale(t *testing.T) {
+	dir := t.TempDir()
+	userRegistryPath := filepath.Join(dir, "tool_registry.yaml")
+	userRegistry := `version: "1"
+providers:
+  openai:
+    tools:
+      bash:
+        category: shell
+        effect: execute
+`
+	if err := os.WriteFile(userRegistryPath, []byte(userRegistry), 0600); err != nil {
+		t.Fatalf("write user registry: %v", err)
+	}
+
+	embeddedRegistry := []byte(`version: "1"
+providers:
+  openai:
+    patterns:
+      - match:
+          name_glob: ["web_search*", "*web_search*"]
+        set:
+          category: network
+          effect: execute
+  _default:
+    patterns:
+      - match:
+          name_glob: ["web_search*", "*web_search*"]
+        set:
+          category: network
+          effect: execute
+`)
+
+	var logs bytes.Buffer
+	originalWriter := log.Writer()
+	originalFlags := log.Flags()
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(originalWriter)
+		log.SetFlags(originalFlags)
+	})
+
+	if _, err := LoadRegistry(userRegistryPath, embeddedRegistry); err != nil {
+		t.Fatalf("load registry: %v", err)
+	}
+	if !strings.Contains(logs.String(), "missing web_search taxonomy pattern") {
+		t.Fatalf("expected stale user registry warning, got %q", logs.String())
 	}
 }
