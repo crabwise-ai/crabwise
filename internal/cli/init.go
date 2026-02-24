@@ -20,6 +20,7 @@ func newInitCmd() *cobra.Command {
 			configDir := defaultInitConfigDir()
 			configPath := filepath.Join(configDir, "config.yaml")
 			commandmentsPath := filepath.Join(configDir, "commandments.yaml")
+			toolRegistryPath := filepath.Join(configDir, "tool_registry.yaml")
 
 			if err := os.MkdirAll(configDir, 0700); err != nil {
 				return fmt.Errorf("create config dir: %w", err)
@@ -35,6 +36,11 @@ func newInitCmd() *cobra.Command {
 				return fmt.Errorf("write commandments: %w", err)
 			}
 
+			toolRegistryWritten, err := writeDefaultFile(toolRegistryPath, configs.DefaultToolRegistryYAML, force)
+			if err != nil {
+				return fmt.Errorf("write tool registry: %w", err)
+			}
+
 			if configWritten {
 				fmt.Printf("Config written to %s\n", configPath)
 			} else {
@@ -45,6 +51,12 @@ func newInitCmd() *cobra.Command {
 				fmt.Printf("Commandments written to %s\n", commandmentsPath)
 			} else {
 				fmt.Printf("Commandments already exist at %s\n", commandmentsPath)
+			}
+
+			if toolRegistryWritten {
+				fmt.Printf("Tool registry written to %s\n", toolRegistryPath)
+			} else {
+				fmt.Printf("Tool registry already exists at %s\n", toolRegistryPath)
 			}
 
 			return nil

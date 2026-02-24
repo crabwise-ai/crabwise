@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/crabwise-ai/crabwise/internal/audit"
+	"github.com/crabwise-ai/crabwise/internal/classify"
 )
 
 func TestParseLineForSource_CodexByPath(t *testing.T) {
@@ -117,6 +118,15 @@ func TestParseCodexResponseItem_ToolCallClassification(t *testing.T) {
 	if e.ActionType != audit.ActionCommandExecution {
 		t.Fatalf("expected command_execution, got %s", e.ActionType)
 	}
+	if e.Provider != "openai" {
+		t.Fatalf("expected openai provider, got %s", e.Provider)
+	}
+	if e.ToolCategory != classify.CategoryShell || e.ToolEffect != classify.EffectExecute {
+		t.Fatalf("expected shell/execute taxonomy, got %s/%s", e.ToolCategory, e.ToolEffect)
+	}
+	if e.ClassificationSource != classify.SourceExact {
+		t.Fatalf("expected exact classification source, got %s", e.ClassificationSource)
+	}
 	if e.InputTokens != 200 || e.OutputTokens != 15 {
 		t.Fatalf("expected usage 200/15, got %d/%d", e.InputTokens, e.OutputTokens)
 	}
@@ -142,6 +152,9 @@ func TestParseCodexResponseItem_FunctionCallExecCommandUsesCommandExecution(t *t
 	e := events[0]
 	if e.ActionType != audit.ActionCommandExecution {
 		t.Fatalf("expected command_execution, got %s", e.ActionType)
+	}
+	if e.ToolCategory != classify.CategoryShell || e.ClassificationSource != classify.SourceExact {
+		t.Fatalf("expected exact shell classification, got %s/%s", e.ToolCategory, e.ClassificationSource)
 	}
 	if e.Model != "gpt-5.1-codex-mini" {
 		t.Fatalf("expected model propagated from turn_context, got %q", e.Model)

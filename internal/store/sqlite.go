@@ -15,9 +15,6 @@ import (
 //go:embed migrations/001_initial.sql
 var migration001 string
 
-//go:embed migrations/002_add_origin.sql
-var migration002 string
-
 type Store struct {
 	db *sql.DB
 }
@@ -66,12 +63,6 @@ func (s *Store) migrate() error {
 		if _, err = s.db.Exec(migration001); err != nil {
 			return err
 		}
-		version = 1
-	}
-	if version < 2 {
-		if _, err = s.db.Exec(migration002); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -91,10 +82,11 @@ func (s *Store) InsertEvents(events []*audit.AuditEvent) error {
 		id, timestamp, agent_id, agent_pid, action_type, action, arguments,
 		session_id, parent_session_id, working_dir, parser_version, outcome,
 		commandments_evaluated, commandments_triggered,
-		provider, model, input_tokens, output_tokens, cost_usd,
+		provider, model, tool_category, tool_effect, tool_name, taxonomy_version, classification_source,
+		input_tokens, output_tokens, cost_usd,
 		adapter_id, adapter_type, raw_payload_ref, prev_hash, event_hash, redacted,
 		hostname, user_id
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare: %w", err)
 	}
@@ -113,7 +105,8 @@ func (s *Store) InsertEvents(events []*audit.AuditEvent) error {
 			e.AgentID, e.AgentPID, string(e.ActionType), e.Action, e.Arguments,
 			e.SessionID, e.ParentSessionID, e.WorkingDir, e.ParserVersion, string(e.Outcome),
 			e.CommandmentsEvaluated, e.CommandmentsTriggered,
-			e.Provider, e.Model, e.InputTokens, e.OutputTokens, e.CostUSD,
+			e.Provider, e.Model, e.ToolCategory, e.ToolEffect, e.ToolName, e.TaxonomyVersion, e.ClassificationSource,
+			e.InputTokens, e.OutputTokens, e.CostUSD,
 			e.AdapterID, e.AdapterType, e.RawPayloadRef, e.PrevHash, e.EventHash, redacted,
 			e.Hostname, e.UserID,
 		)

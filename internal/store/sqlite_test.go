@@ -32,8 +32,8 @@ func TestOpenAndMigrate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query schema_version: %v", err)
 	}
-	if version != 2 {
-		t.Fatalf("expected version 2, got %d", version)
+	if version != 1 {
+		t.Fatalf("expected version 1, got %d", version)
 	}
 }
 
@@ -231,5 +231,42 @@ func TestGetLastEventHash_WithEvents(t *testing.T) {
 	hash, _ := s.GetLastEventHash()
 	if hash != "hash_second" {
 		t.Fatalf("expected hash_second, got %q", hash)
+	}
+}
+
+func TestInsertEvents_PersistsToolTaxonomyFields(t *testing.T) {
+	s, cleanup := tempDB(t)
+	defer cleanup()
+
+	e := &audit.AuditEvent{
+		ID:                   "evt_tax",
+		Timestamp:            time.Now().UTC(),
+		AgentID:              "codex-cli",
+		ActionType:           audit.ActionCommandExecution,
+		Action:               "Bash",
+		Outcome:              audit.OutcomeSuccess,
+		EventHash:            "hash_tax",
+		PrevHash:             "genesis",
+		ToolCategory:         "shell",
+		ToolEffect:           "execute",
+		ToolName:             "Bash",
+		TaxonomyVersion:      "v1",
+		ClassificationSource: "exact",
+	}
+
+	if err := s.InsertEvents([]*audit.AuditEvent{e}); err != nil {
+		t.Fatalf("insert event: %v", err)
+	}
+
+	var category, effect, toolName, version, source string
+	err := s.DB().QueryRow(`SELECT tool_category, tool_effect, tool_name, taxonomy_version, classification_source FROM events WHERE id = ?`, "evt_tax").Scan(
+		&category, &effect, &toolName, &version, &source,
+	)
+	if err != nil {
+		t.Fatalf("query taxonomy columns: %v", err)
+	}
+
+	if category != "shell" || effect != "execute" || toolName != "Bash" || version != "v1" || source != "exact" {
+		t.Fatalf("unexpected taxonomy values: %s/%s/%s/%s/%s", category, effect, toolName, version, source)
 	}
 }

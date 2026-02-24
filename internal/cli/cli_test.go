@@ -27,6 +27,17 @@ func TestRootRegistersCommandmentsCommand(t *testing.T) {
 	}
 }
 
+func TestRootRegistersClassifyCommand(t *testing.T) {
+	root := NewRootCmd()
+	cmd, _, err := root.Find([]string{"classify"})
+	if err != nil {
+		t.Fatalf("find classify command: %v", err)
+	}
+	if cmd == nil || cmd.Name() != "classify" {
+		t.Fatalf("expected classify command to be registered")
+	}
+}
+
 func TestAuditCommandSupportsTriggeredAndOutcomeFlags(t *testing.T) {
 	cmd := newAuditCmd()
 	if cmd.Flag("triggered") == nil {

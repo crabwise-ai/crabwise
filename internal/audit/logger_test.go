@@ -256,6 +256,8 @@ func TestLoggerProcessEvent_ExemptSystemEventsSkipEvaluationAndRedaction(t *test
 		"commandments_reload_failed",
 		"commandments_load_failed",
 		"commandments_load_ok",
+		"tool_registry_reload_ok",
+		"tool_registry_reload_failed",
 	}
 
 	for _, action := range tests {

@@ -205,6 +205,46 @@ func TestEvaluate_NumericZeroValueFieldsMatch(t *testing.T) {
 	}
 }
 
+func TestEvaluate_ToolTaxonomyFieldsMatch(t *testing.T) {
+	rules := []Commandment{
+		{
+			Name:        "tool-category-shell",
+			Enforcement: "warn",
+			Enabled:     boolPtr(true),
+			Match: map[string]MatchCondition{
+				"tool_category": {Type: MatcherTypeExact, Pattern: "shell"},
+			},
+		},
+		{
+			Name:        "tool-effect-execute",
+			Enforcement: "warn",
+			Enabled:     boolPtr(true),
+			Match: map[string]MatchCondition{
+				"tool_effect": {Type: MatcherTypeExact, Pattern: "execute"},
+			},
+		},
+		{
+			Name:        "tool-name-bash",
+			Enforcement: "warn",
+			Enabled:     boolPtr(true),
+			Match: map[string]MatchCondition{
+				"tool_name": {Type: MatcherTypeExact, Pattern: "Bash"},
+			},
+		},
+	}
+
+	compiled, err := compileRules(rules)
+	if err != nil {
+		t.Fatalf("compile rules: %v", err)
+	}
+	engine := &Engine{rules: compiled}
+
+	result := engine.Evaluate(&audit.AuditEvent{ToolCategory: "shell", ToolEffect: "execute", ToolName: "Bash"})
+	if len(result.Triggered) != 3 {
+		t.Fatalf("expected 3 triggered taxonomy rules, got %+v", result.Triggered)
+	}
+}
+
 func TestEvalLatencySLO(t *testing.T) {
 	rules := make([]Commandment, 0, 20)
 	for i := 0; i < 20; i++ {

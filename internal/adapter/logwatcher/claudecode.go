@@ -30,17 +30,17 @@ const ParserVersion = "cc-parser-v0.1"
 
 // CCRecord represents a raw Claude Code JSONL record.
 type CCRecord struct {
-	Type      string          `json:"type"`
-	Timestamp string          `json:"timestamp"`
-	SessionID string          `json:"sessionId"`
-	UUID      string          `json:"uuid"`
-	ParentUUID string         `json:"parentUuid"`
-	CWD       string          `json:"cwd"`
-	Version   string          `json:"version"`
-	Message   json.RawMessage `json:"message"`
+	Type       string          `json:"type"`
+	Timestamp  string          `json:"timestamp"`
+	SessionID  string          `json:"sessionId"`
+	UUID       string          `json:"uuid"`
+	ParentUUID string          `json:"parentUuid"`
+	CWD        string          `json:"cwd"`
+	Version    string          `json:"version"`
+	Message    json.RawMessage `json:"message"`
 
 	// Tool result fields (toolUseResult can be string or object)
-	ToolUseResult          json.RawMessage `json:"toolUseResult"`
+	ToolUseResult           json.RawMessage `json:"toolUseResult"`
 	SourceToolAssistantUUID string          `json:"sourceToolAssistantUUID"`
 
 	// Raw bytes for unknown record handling
@@ -63,19 +63,19 @@ type ContentBlock struct {
 }
 
 type CCUsage struct {
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
+	InputTokens              int64 `json:"input_tokens"`
+	OutputTokens             int64 `json:"output_tokens"`
 	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
 	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 }
 
 // ParseResult holds parsed events and parse statistics.
 type ParseResult struct {
-	Events       []*audit.AuditEvent
-	Skipped      int
-	Errors       int
-	Unknown      int
-	Total        int
+	Events  []*audit.AuditEvent
+	Skipped int
+	Errors  int
+	Unknown int
+	Total   int
 }
 
 // ParseLine parses a single JSONL line into audit events.
@@ -173,8 +173,6 @@ func parseContentBlocks(content interface{}) []ContentBlock {
 }
 
 func toolCallEvent(rec *CCRecord, msg *CCMessage, block *ContentBlock, sessionFile string, lineOffset int64, toolIdx int) *audit.AuditEvent {
-	actionType := classifyTool(block.Name)
-
 	var args string
 	if len(block.Input) > 0 {
 		args = string(block.Input)
@@ -183,11 +181,11 @@ func toolCallEvent(rec *CCRecord, msg *CCMessage, block *ContentBlock, sessionFi
 	ts := parseTimestamp(rec.Timestamp)
 	sessionID := extractSessionIDFromFile(sessionFile)
 
-	return &audit.AuditEvent{
+	e := &audit.AuditEvent{
 		ID:            deterministicID(sessionFile, lineOffset, toolIdx, rec.rawBytes),
 		Timestamp:     ts,
 		AgentID:       "claude-code",
-		ActionType:    actionType,
+		ActionType:    audit.ActionToolCall,
 		Action:        block.Name,
 		Arguments:     args,
 		SessionID:     sessionID,
@@ -198,6 +196,10 @@ func toolCallEvent(rec *CCRecord, msg *CCMessage, block *ContentBlock, sessionFi
 		AdapterID:     "log-watcher",
 		AdapterType:   "log_watcher",
 	}
+
+	applyToolClassification(e, "anthropic", block.Name, block.Input)
+
+	return e
 }
 
 func aiRequestEvent(rec *CCRecord, msg *CCMessage, sessionFile string, lineOffset int64) *audit.AuditEvent {
@@ -253,17 +255,6 @@ func unknownEvent(sessionFile string, rawBytes []byte, parseErr error, lineOffse
 		Outcome:       audit.OutcomeSuccess,
 		AdapterID:     "log-watcher",
 		AdapterType:   "log_watcher",
-	}
-}
-
-func classifyTool(name string) audit.ActionType {
-	switch name {
-	case "Bash":
-		return audit.ActionCommandExecution
-	case "Read", "Write", "Edit", "Glob", "Grep":
-		return audit.ActionFileAccess
-	default:
-		return audit.ActionToolCall
 	}
 }
 
