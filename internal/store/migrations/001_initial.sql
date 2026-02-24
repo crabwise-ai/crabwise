@@ -15,6 +15,11 @@ CREATE TABLE IF NOT EXISTS events (
     commandments_triggered TEXT,
     provider        TEXT,
     model           TEXT,
+    tool_category   TEXT,
+    tool_effect     TEXT,
+    tool_name       TEXT,
+    taxonomy_version TEXT,
+    classification_source TEXT,
     input_tokens    INTEGER,
     output_tokens   INTEGER,
     cost_usd        REAL,
@@ -23,7 +28,9 @@ CREATE TABLE IF NOT EXISTS events (
     raw_payload_ref TEXT,
     prev_hash       TEXT,
     event_hash      TEXT NOT NULL,
-    redacted        INTEGER DEFAULT 0
+    redacted        INTEGER DEFAULT 0,
+    hostname        TEXT,
+    user_id         TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
@@ -31,6 +38,8 @@ CREATE INDEX IF NOT EXISTS idx_events_agent_id ON events(agent_id);
 CREATE INDEX IF NOT EXISTS idx_events_action_type ON events(action_type);
 CREATE INDEX IF NOT EXISTS idx_events_outcome ON events(outcome);
 CREATE INDEX IF NOT EXISTS idx_events_session_id ON events(session_id);
+CREATE INDEX IF NOT EXISTS idx_events_tool_category ON events(tool_category);
+CREATE INDEX IF NOT EXISTS idx_events_tool_effect ON events(tool_effect);
 
 CREATE TABLE IF NOT EXISTS schema_version (
     version    INTEGER PRIMARY KEY,

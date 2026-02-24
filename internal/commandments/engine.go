@@ -224,6 +224,12 @@ func eventFieldValue(evt *audit.AuditEvent, field string) (string, bool) {
 		return evt.Provider, evt.Provider != ""
 	case "model":
 		return evt.Model, evt.Model != ""
+	case "tool_category":
+		return evt.ToolCategory, evt.ToolCategory != ""
+	case "tool_effect":
+		return evt.ToolEffect, evt.ToolEffect != ""
+	case "tool_name":
+		return evt.ToolName, evt.ToolName != ""
 	case "adapter_type":
 		return evt.AdapterType, evt.AdapterType != ""
 	case "adapter_id":

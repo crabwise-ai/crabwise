@@ -28,6 +28,9 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if cfg.Commandments.File == "" {
 		t.Fatal("expected commandments.file default to be set")
 	}
+	if cfg.ToolRegistry.File == "" {
+		t.Fatal("expected tool_registry.file default to be set")
+	}
 	if len(cfg.Discovery.ProcessSignatures) == 0 {
 		t.Fatal("expected discovery.process_signatures defaults")
 	}
@@ -103,6 +106,9 @@ func TestLoadConfig_ExpandTilde(t *testing.T) {
 	if !strings.HasPrefix(cfg.Commandments.File, home) {
 		t.Fatalf("expected commandments.file tilde expansion, got %s", cfg.Commandments.File)
 	}
+	if !strings.HasPrefix(cfg.ToolRegistry.File, home) {
+		t.Fatalf("expected tool_registry.file tilde expansion, got %s", cfg.ToolRegistry.File)
+	}
 }
 
 func TestLoadConfig_CommandmentsDefaultPathWhenEmpty(t *testing.T) {
@@ -119,5 +125,22 @@ func TestLoadConfig_CommandmentsDefaultPathWhenEmpty(t *testing.T) {
 
 	if filepath.Base(cfg.Commandments.File) != "commandments.yaml" {
 		t.Fatalf("expected default commandments path, got %s", cfg.Commandments.File)
+	}
+}
+
+func TestLoadConfig_ToolRegistryDefaultPathWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("tool_registry:\n  file: \"\"\n"), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if filepath.Base(cfg.ToolRegistry.File) != "tool_registry.yaml" {
+		t.Fatalf("expected default tool registry path, got %s", cfg.ToolRegistry.File)
 	}
 }

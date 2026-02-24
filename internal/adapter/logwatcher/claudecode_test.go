@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/crabwise-ai/crabwise/internal/audit"
+	"github.com/crabwise-ai/crabwise/internal/classify"
 )
 
 func TestParseLine_ToolUse(t *testing.T) {
@@ -26,6 +27,18 @@ func TestParseLine_ToolUse(t *testing.T) {
 	if e.Action != "Read" {
 		t.Fatalf("expected Read, got %s", e.Action)
 	}
+	if e.Provider != "anthropic" {
+		t.Fatalf("expected anthropic provider, got %s", e.Provider)
+	}
+	if e.ToolName != "Read" {
+		t.Fatalf("expected tool name Read, got %s", e.ToolName)
+	}
+	if e.ToolCategory != classify.CategoryFileRead || e.ToolEffect != classify.EffectReadOnly {
+		t.Fatalf("expected file.read/read_only taxonomy, got %s/%s", e.ToolCategory, e.ToolEffect)
+	}
+	if e.ClassificationSource != classify.SourceExact {
+		t.Fatalf("expected exact classification source, got %s", e.ClassificationSource)
+	}
 	if e.Model != "claude-sonnet-4-5-20250929" {
 		t.Fatalf("expected model, got %s", e.Model)
 	}
@@ -43,6 +56,9 @@ func TestParseLine_BashCommand(t *testing.T) {
 	}
 	if events[0].ActionType != audit.ActionCommandExecution {
 		t.Fatalf("expected command_execution, got %s", events[0].ActionType)
+	}
+	if events[0].ToolCategory != classify.CategoryShell || events[0].ClassificationSource != classify.SourceExact {
+		t.Fatalf("expected exact shell taxonomy, got %s/%s", events[0].ToolCategory, events[0].ClassificationSource)
 	}
 }
 
@@ -238,25 +254,17 @@ func TestDriftRatio(t *testing.T) {
 	}
 }
 
-func TestClassifyTool(t *testing.T) {
-	tests := []struct {
-		name   string
-		expect audit.ActionType
-	}{
-		{"Bash", audit.ActionCommandExecution},
-		{"Read", audit.ActionFileAccess},
-		{"Write", audit.ActionFileAccess},
-		{"Edit", audit.ActionFileAccess},
-		{"Glob", audit.ActionFileAccess},
-		{"Grep", audit.ActionFileAccess},
-		{"Task", audit.ActionToolCall},
-		{"WebSearch", audit.ActionToolCall},
-	}
+func TestParseLine_UnknownToolFallsBack(t *testing.T) {
+	line := `{"type":"assistant","sessionId":"sess-001","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_002","name":"Task","input":{"prompt":"run checks"}}],"usage":{"input_tokens":50,"output_tokens":20}},"uuid":"uuid-002","timestamp":"2026-02-22T14:00:00.000Z"}`
 
-	for _, tt := range tests {
-		got := classifyTool(tt.name)
-		if got != tt.expect {
-			t.Fatalf("classifyTool(%s): expected %s, got %s", tt.name, tt.expect, got)
-		}
+	events, _ := ParseLine([]byte(line), "/tmp/session.jsonl", 0)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].ActionType != audit.ActionToolCall {
+		t.Fatalf("expected tool_call, got %s", events[0].ActionType)
+	}
+	if events[0].ClassificationSource != classify.SourceFallback {
+		t.Fatalf("expected fallback source, got %s", events[0].ClassificationSource)
 	}
 }

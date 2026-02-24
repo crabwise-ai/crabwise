@@ -158,6 +158,7 @@ func parseCodexResponseItem(payload json.RawMessage, sessionFile, sessionID stri
 
 	if isCodexToolType(item.Type) {
 		name := firstNonEmpty(item.Name, item.ToolName)
+		rawArgs := firstNonEmptyRaw(item.Arguments, item.Input)
 		evt := codexBaseEvent(
 			sessionFile,
 			lineOffset,
@@ -165,12 +166,13 @@ func parseCodexResponseItem(payload json.RawMessage, sessionFile, sessionID stri
 			raw,
 			timestamp,
 			sessionID,
-			classifyCodexTool(name),
+			audit.ActionToolCall,
 			name,
-			firstNonEmpty(normalizeRawJSON(item.Arguments), normalizeRawJSON(item.Input)),
+			firstNonEmpty(normalizeRawJSON(rawArgs)),
 			"",
 			item.Model,
 		)
+		applyToolClassification(evt, "openai", name, rawArgs)
 		if item.Usage != nil {
 			evt.InputTokens = item.Usage.InputTokens
 			evt.OutputTokens = item.Usage.OutputTokens
@@ -209,8 +211,11 @@ func parseCodexMessageItem(item codexResponseItem, sessionFile, sessionID string
 		default:
 			if isCodexToolType(block.Type) {
 				name := firstNonEmpty(block.Name, block.ToolName)
-				args := firstNonEmpty(normalizeRawJSON(block.Arguments), normalizeRawJSON(block.Input))
-				events = append(events, codexBaseEvent(sessionFile, lineOffset, toolIdx, raw, timestamp, sessionID, classifyCodexTool(name), name, args, "", item.Model))
+				rawArgs := firstNonEmptyRaw(block.Arguments, block.Input)
+				args := firstNonEmpty(normalizeRawJSON(rawArgs))
+				evt := codexBaseEvent(sessionFile, lineOffset, toolIdx, raw, timestamp, sessionID, audit.ActionToolCall, name, args, "", item.Model)
+				applyToolClassification(evt, "openai", name, rawArgs)
+				events = append(events, evt)
 				toolIdx++
 			}
 		}
@@ -373,26 +378,6 @@ func isCodexToolType(t string) bool {
 	}
 }
 
-func classifyCodexTool(name string) audit.ActionType {
-	normalized := strings.ToLower(strings.TrimSpace(name))
-	normalized = strings.TrimPrefix(normalized, "functions.")
-
-	switch normalized {
-	case "bash", "shell", "command", "run_shell_command", "execute_command", "exec_command":
-		return audit.ActionCommandExecution
-	case "read", "write", "edit", "glob", "grep", "read_file", "write_file", "edit_file", "search_file", "list_files":
-		return audit.ActionFileAccess
-	default:
-		if strings.Contains(normalized, "command") || strings.HasPrefix(normalized, "exec_") {
-			return audit.ActionCommandExecution
-		}
-		if strings.Contains(normalized, "read") || strings.Contains(normalized, "write") || strings.Contains(normalized, "edit") || strings.Contains(normalized, "file") || strings.Contains(normalized, "grep") || strings.Contains(normalized, "glob") {
-			return audit.ActionFileAccess
-		}
-		return audit.ActionToolCall
-	}
-}
-
 func isCodexIgnoredResponseType(t string) bool {
 	switch strings.ToLower(strings.TrimSpace(t)) {
 	case "reasoning", "function_call_output":
@@ -456,4 +441,14 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func firstNonEmptyRaw(values ...json.RawMessage) json.RawMessage {
+	for _, value := range values {
+		if len(value) == 0 || string(value) == "null" {
+			continue
+		}
+		return value
+	}
+	return nil
 }

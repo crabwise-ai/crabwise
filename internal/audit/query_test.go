@@ -35,6 +35,11 @@ func setupQueryTestDB(t *testing.T) *sql.DB {
 		commandments_triggered TEXT,
 		provider TEXT,
 		model TEXT,
+		tool_category TEXT,
+		tool_effect TEXT,
+		tool_name TEXT,
+		taxonomy_version TEXT,
+		classification_source TEXT,
 		input_tokens INTEGER,
 		output_tokens INTEGER,
 		cost_usd REAL,
@@ -110,5 +115,39 @@ func TestQueryEvents_TriggeredAndOutcome(t *testing.T) {
 	}
 	if result.Events[0].ID != "evt_warned" {
 		t.Fatalf("expected evt_warned, got %s", result.Events[0].ID)
+	}
+}
+
+func TestQueryEvents_ReturnsToolTaxonomyFields(t *testing.T) {
+	db := setupQueryTestDB(t)
+	_, err := db.Exec(`INSERT INTO events (
+		id, timestamp, agent_id, action_type, outcome, event_hash,
+		tool_category, tool_effect, tool_name, taxonomy_version, classification_source
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"evt_taxonomy",
+		time.Now().UTC().Format(time.RFC3339Nano),
+		"claude-code",
+		"file_access",
+		"success",
+		"hash_evt_taxonomy",
+		"file.read",
+		"read_only",
+		"Read",
+		"v1",
+		"exact",
+	)
+	if err != nil {
+		t.Fatalf("insert taxonomy event: %v", err)
+	}
+
+	result, err := QueryEvents(db, QueryFilter{Limit: 1})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if len(result.Events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(result.Events))
+	}
+	if result.Events[0].ToolCategory != "file.read" || result.Events[0].ClassificationSource != "exact" {
+		t.Fatalf("expected taxonomy fields to be scanned, got %+v", result.Events[0])
 	}
 }

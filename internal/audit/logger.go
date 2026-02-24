@@ -313,7 +313,7 @@ func isCommandmentsExemptSystemEvent(e *AuditEvent) bool {
 		return false
 	}
 	switch e.Action {
-	case "commandments_reload_ok", "commandments_reload_failed", "commandments_load_failed", "commandments_load_ok":
+	case "commandments_reload_ok", "commandments_reload_failed", "commandments_load_failed", "commandments_load_ok", "tool_registry_reload_ok", "tool_registry_reload_failed":
 		return true
 	default:
 		return false

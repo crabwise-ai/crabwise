@@ -1,0 +1,163 @@
+version: "1"
+
+providers:
+  anthropic:
+    tools:
+      Bash:
+        category: shell
+        effect: execute
+      Read:
+        category: file.read
+        effect: read_only
+      Write:
+        category: file.write
+        effect: mutation
+      Edit:
+        category: file.edit
+        effect: mutation
+      Glob:
+        category: file.search
+        effect: metadata
+      Grep:
+        category: file.search
+        effect: read_only
+
+  openai:
+    # OpenAI-family integrations can emit both canonical names (run_shell_command)
+    # and generic aliases (bash/read/write). Classifier matching handles exact and
+    # normalized lower-case fallback, so include provider-observed spellings here.
+    tools:
+      bash:
+        category: shell
+        effect: execute
+      read:
+        category: file.read
+        effect: read_only
+      write:
+        category: file.write
+        effect: mutation
+      edit:
+        category: file.edit
+        effect: mutation
+      glob:
+        category: file.search
+        effect: metadata
+      grep:
+        category: file.search
+        effect: read_only
+      run_shell_command:
+        category: shell
+        effect: execute
+      exec_command:
+        category: shell
+        effect: execute
+      execute_command:
+        category: shell
+        effect: execute
+      read_file:
+        category: file.read
+        effect: read_only
+      write_file:
+        category: file.write
+        effect: mutation
+      edit_file:
+        category: file.edit
+        effect: mutation
+      list_files:
+        category: file.search
+        effect: metadata
+      search_file:
+        category: file.search
+        effect: read_only
+
+  _default:
+    tools:
+      bash:
+        category: shell
+        effect: execute
+      shell:
+        category: shell
+        effect: execute
+      read:
+        category: file.read
+        effect: read_only
+      write:
+        category: file.write
+        effect: mutation
+      edit:
+        category: file.edit
+        effect: mutation
+      glob:
+        category: file.search
+        effect: metadata
+      grep:
+        category: file.search
+        effect: read_only
+
+    patterns:
+      - match:
+          name_glob: ["read_*", "*_read"]
+        set:
+          category: file.read
+          effect: read_only
+      - match:
+          name_glob: ["write_*", "*_write"]
+        set:
+          category: file.write
+          effect: mutation
+      - match:
+          name_glob: ["edit_*", "patch_*"]
+        set:
+          category: file.edit
+          effect: mutation
+
+heuristics:
+  - match:
+      name_glob: ["*bash*", "*shell*", "*exec*", "*command*"]
+    set:
+      category: shell
+      effect: execute
+
+  - match:
+      name_glob: ["*read*", "*cat*", "*open*"]
+      arg_keys_any: [path, filename, file_path]
+    set:
+      category: file.read
+      effect: read_only
+
+  - match:
+      name_glob: ["*write*", "*save*", "*create*"]
+      arg_keys_any: [path, filename, content, data]
+    set:
+      category: file.write
+      effect: mutation
+
+  - match:
+      name_glob: ["*edit*", "*patch*", "*replace*"]
+    set:
+      category: file.edit
+      effect: mutation
+
+  - match:
+      name_glob: ["*grep*", "*glob*", "*find*", "*search*", "*list*"]
+    set:
+      category: file.search
+      effect: metadata
+
+  - match:
+      name_glob: ["*http*", "*fetch*", "*curl*", "*request*"]
+    set:
+      category: network
+      effect: execute
+
+  - match:
+      arg_keys_any: [command, cmd]
+    set:
+      category: shell
+      effect: execute
+
+  - match:
+      arg_keys_any: [url, endpoint, uri]
+    set:
+      category: network
+      effect: execute

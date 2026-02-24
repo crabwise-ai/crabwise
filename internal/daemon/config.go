@@ -18,6 +18,10 @@ var DefaultConfigYAML []byte
 // Set from configs package at init time.
 var DefaultCommandmentsYAML []byte
 
+// DefaultToolRegistryYAML is the embedded default tool registry file.
+// Set from configs package at init time.
+var DefaultToolRegistryYAML []byte
+
 type Config struct {
 	Daemon       DaemonConfig       `yaml:"daemon"`
 	Discovery    DiscoveryConfig    `yaml:"discovery"`
@@ -25,6 +29,7 @@ type Config struct {
 	Queue        QueueConfig        `yaml:"queue"`
 	Audit        AuditConfig        `yaml:"audit"`
 	Commandments CommandmentsConfig `yaml:"commandments"`
+	ToolRegistry ToolRegistryConfig `yaml:"tool_registry"`
 }
 
 type DaemonConfig struct {
@@ -68,6 +73,10 @@ type AuditConfig struct {
 }
 
 type CommandmentsConfig struct {
+	File string `yaml:"file"`
+}
+
+type ToolRegistryConfig struct {
 	File string `yaml:"file"`
 }
 
@@ -127,6 +136,7 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.Audit.RetentionDays = 30
 		cfg.Audit.HashAlgorithm = "sha256"
 		cfg.Commandments.File = "~/.config/crabwise/commandments.yaml"
+		cfg.ToolRegistry.File = "~/.config/crabwise/tool_registry.yaml"
 	}
 
 	// Override with user config if present
@@ -170,6 +180,7 @@ func (c *Config) expandPaths() {
 	c.Daemon.RawPayloadDir = expand(c.Daemon.RawPayloadDir)
 	c.Daemon.PIDFile = expand(c.Daemon.PIDFile)
 	c.Commandments.File = expand(c.Commandments.File)
+	c.ToolRegistry.File = expand(c.ToolRegistry.File)
 
 	for i, p := range c.Discovery.LogPaths {
 		c.Discovery.LogPaths[i] = expand(p)
@@ -185,6 +196,9 @@ func (c *Config) validate() error {
 	}
 	if c.Commandments.File == "" {
 		c.Commandments.File = defaultCommandmentsPath()
+	}
+	if c.ToolRegistry.File == "" {
+		c.ToolRegistry.File = defaultToolRegistryPath()
 	}
 	switch c.Daemon.LogLevel {
 	case "debug", "info", "warn", "error", "":
@@ -208,4 +222,12 @@ func defaultCommandmentsPath() string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "crabwise", "commandments.yaml")
+}
+
+func defaultToolRegistryPath() string {
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, "crabwise", "tool_registry.yaml")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "crabwise", "tool_registry.yaml")
 }

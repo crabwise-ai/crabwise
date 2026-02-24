@@ -47,6 +47,11 @@ type AuditEvent struct {
 	CommandmentsTriggered string     `json:"commandments_triggered,omitempty"` // JSON array
 	Provider              string     `json:"provider,omitempty"`
 	Model                 string     `json:"model,omitempty"`
+	ToolCategory          string     `json:"tool_category,omitempty"`
+	ToolEffect            string     `json:"tool_effect,omitempty"`
+	ToolName              string     `json:"tool_name,omitempty"`
+	TaxonomyVersion       string     `json:"taxonomy_version,omitempty"`
+	ClassificationSource  string     `json:"classification_source,omitempty"`
 	InputTokens           int64      `json:"input_tokens,omitempty"`
 	OutputTokens          int64      `json:"output_tokens,omitempty"`
 	CostUSD               float64    `json:"cost_usd,omitempty"`
@@ -86,6 +91,11 @@ func CanonicalBytes(e *AuditEvent) []byte {
 	buf = appendString(buf, e.CommandmentsTriggered)
 	buf = appendString(buf, e.Provider)
 	buf = appendString(buf, e.Model)
+	buf = appendString(buf, e.ToolCategory)
+	buf = appendString(buf, e.ToolEffect)
+	buf = appendString(buf, e.ToolName)
+	buf = appendString(buf, e.TaxonomyVersion)
+	buf = appendString(buf, e.ClassificationSource)
 	buf = appendInt(buf, e.InputTokens)
 	buf = appendInt(buf, e.OutputTokens)
 	buf = appendFloat(buf, e.CostUSD)

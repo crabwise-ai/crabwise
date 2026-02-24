@@ -73,7 +73,8 @@ func QueryEvents(db *sql.DB, f QueryFilter) (*QueryResult, error) {
 	query := "SELECT id, timestamp, agent_id, agent_pid, action_type, action, arguments, " +
 		"session_id, parent_session_id, working_dir, parser_version, outcome, " +
 		"commandments_evaluated, commandments_triggered, " +
-		"provider, model, input_tokens, output_tokens, cost_usd, " +
+		"provider, model, tool_category, tool_effect, tool_name, taxonomy_version, classification_source, " +
+		"input_tokens, output_tokens, cost_usd, " +
 		"adapter_id, adapter_type, raw_payload_ref, prev_hash, event_hash, redacted, " +
 		"hostname, user_id " +
 		"FROM events " + where + " ORDER BY timestamp ASC"
@@ -99,6 +100,7 @@ func QueryEvents(db *sql.DB, f QueryFilter) (*QueryResult, error) {
 		var action, arguments, sessionID, parentSessionID, workingDir, parserVersion sql.NullString
 		var cmdEval, cmdTrig sql.NullString
 		var provider, model sql.NullString
+		var toolCategory, toolEffect, toolName, taxonomyVersion, classificationSource sql.NullString
 		var inputTokens, outputTokens sql.NullInt64
 		var costUSD sql.NullFloat64
 		var adapterID, adapterType, rawPayloadRef, prevHash sql.NullString
@@ -111,7 +113,8 @@ func QueryEvents(db *sql.DB, f QueryFilter) (*QueryResult, error) {
 			&sessionID, &parentSessionID, &workingDir, &parserVersion,
 			&e.Outcome,
 			&cmdEval, &cmdTrig,
-			&provider, &model, &inputTokens, &outputTokens, &costUSD,
+			&provider, &model, &toolCategory, &toolEffect, &toolName, &taxonomyVersion, &classificationSource,
+			&inputTokens, &outputTokens, &costUSD,
 			&adapterID, &adapterType, &rawPayloadRef, &prevHash, &e.EventHash, &redacted,
 			&hostname, &userID,
 		)
@@ -131,6 +134,11 @@ func QueryEvents(db *sql.DB, f QueryFilter) (*QueryResult, error) {
 		e.CommandmentsTriggered = cmdTrig.String
 		e.Provider = provider.String
 		e.Model = model.String
+		e.ToolCategory = toolCategory.String
+		e.ToolEffect = toolEffect.String
+		e.ToolName = toolName.String
+		e.TaxonomyVersion = taxonomyVersion.String
+		e.ClassificationSource = classificationSource.String
 		e.InputTokens = inputTokens.Int64
 		e.OutputTokens = outputTokens.Int64
 		e.CostUSD = costUSD.Float64

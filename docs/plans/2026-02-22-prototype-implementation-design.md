@@ -101,6 +101,28 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 - Normalized Codex session IDs to UUID suffix across parser + discovery for consistent correlation in `agents`/`audit`.
 - Fixed Codex token_count merge behavior to support partial `usage` payloads without dropping top-level token counts.
 
+### M1.5 — Canonical Tool Taxonomy + Central Classifier (Week 3)
+
+**Demo:** One commandment using `tool_category: shell` + `tool_effect: execute` matches equivalent tool actions across Claude Code and Codex without adapter-specific rules.
+
+**Rationale:** M2 block enforcement needs provider-agnostic commandment semantics. Central classification removes per-adapter drift and keeps taxonomy decisions deterministic.
+
+| Deliverable | Detail |
+|------------|--------|
+| Central classifier | Provider-aware classifier shared by all adapters and proxy paths |
+| Deterministic exact lookup | Resolve in fixed order: provider exact → provider lowercase → `_default` lowercase |
+| Heuristic ordering | Heuristic rules are evaluated top-to-bottom, first-match-wins |
+| Overlap handling | Heuristic overlap is surfaced as a warning only (non-blocking load path) |
+| Observability | Persist `classification_source`; surface `unclassified_tool_count` in `status`; feed fallback/unknowns into classifier drift review |
+| CLI introspection | `crabwise classify <tool-name> --provider <p> --args key1,key2` for dry-run resolution and provenance debugging |
+| DB stance | Fresh DB bootstrap for M1.5 with taxonomy fields in baseline schema (no migration narrative for this milestone section) |
+
+**Exit gates:**
+- Conformance fixtures show equivalent tool actions classify identically across adapters
+- Known mapped tools resolve via deterministic exact matching (no silent heuristic downgrade)
+- `crabwise status` exposes `unclassified_tool_count` and operators can use it to spot taxonomy drift
+- `crabwise classify` output is deterministic and includes classification provenance
+
 ### M2 — Proxy + Block Enforcement (Weeks 3-4)
 
 **Demo:** Disallowed model request denied before reaching provider; `crabwise audit` shows blocked event
@@ -204,7 +226,7 @@ Why JSON-RPC: simple, well-specified, Go libraries exist, human-debuggable with 
 
 ```
 Request/Response methods (standard JSON-RPC 2.0):
-  status              → {agents, queue_depth, uptime}
+  status              → {agents, queue_depth, uptime, unclassified_tool_count}
   agents.list         → [{id, type, pid, adapter, status}]
   audit.query         → {events, total}  (accepts filters)
   audit.verify        → {valid, broken_at}
@@ -506,6 +528,9 @@ crabwise/
 │   │       ├── proxy.go            # HTTP proxy server
 │   │       ├── streaming.go        # SSE passthrough
 │   │       └── openai.go           # OpenAI-compatible adapter
+│   ├── classify/
+│   │   ├── taxonomy.go             # Canonical category/effect definitions
+│   │   └── registry.go             # Provider-aware registry + deterministic resolver
 │   ├── commandments/
 │   │   ├── schema.go               # YAML rule parser + validation
 │   │   ├── engine.go               # Rule evaluator + reload
@@ -530,6 +555,7 @@ crabwise/
 │   │   ├── status.go
 │   │   ├── watch.go                # Text streaming (M0) + Bubble Tea (M3)
 │   │   ├── audit.go
+│   │   ├── classify.go             # Dry-run taxonomy introspection
 │   │   ├── commandments.go
 │   │   └── agents.go
 │   ├── queue/
@@ -537,8 +563,7 @@ crabwise/
 │   └── store/
 │       ├── sqlite.go               # Connection + migrations
 │       └── migrations/
-│           ├── 001_initial.sql
-│           └── 002_add_origin.sql  # hostname + user_id columns
+│           └── 001_initial.sql
 ├── testdata/
 │   ├── claude-code/                # CC log fixtures
 │   ├── codex-cli/                  # Codex CLI log fixtures
@@ -546,7 +571,8 @@ crabwise/
 │   └── proxy/                      # Request/response pairs
 ├── configs/
 │   ├── default.yaml
-│   └── commandments_default.yaml
+│   ├── commandments_default.yaml
+│   └── tool_registry.yaml
 ├── .github/
 │   ├── workflows/
 │   │   ├── ci.yml                  # Lint + test + build on push/PR
@@ -578,6 +604,8 @@ crabwise/
 9. **Redaction:** Secrets redacted in DB/OTel/CLI exports and proxy-forwarded payloads; original CC logs unchanged
 10. **Performance:** Benchmark suite confirms all SLOs
 11. **TUI:** `crabwise watch` shows live feed, warnings/blocks, queue depth, drop counters
+12. **Classifier introspection:** `crabwise classify` confirms provider/default lookup path and reports `classification_source`
+13. **Classifier drift signal:** `crabwise status` shows `unclassified_tool_count`; non-zero counts trigger taxonomy review
 
 ---
 
@@ -599,7 +627,7 @@ If week-5 schedule slips, defer in this order (least critical first):
 
 | Original | Revised |
 |----------|---------|
-| 6 milestones (M0-M4 + M0.5) | 4 milestones (M0-M3), each a vertical slice |
+| 6 milestones (M0-M4 + M0.5) | 4 vertical milestones (M0-M3) plus targeted M1.5 taxonomy hardening |
 | M0.5 hardening before features | Hardening pieces moved to where their data lives |
 | TUI deferred to M4 | Basic `watch` in M0, Bubble Tea in M3 |
 | Commandments (M2) before proxy (M3) | Same order but proxy benefits from complete engine |
