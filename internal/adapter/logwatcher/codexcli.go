@@ -148,7 +148,7 @@ func parseCodexResponseItem(payload json.RawMessage, sessionFile, sessionID stri
 		item.Model = getCodexSessionModel(sessionFile, sessionID)
 	}
 
-	if isCodexIgnoredResponseType(item.Type) {
+	if isCodexIgnoredResponseType(item.Type) || isCodexDeniedToolLikeType(item.Type) {
 		return nil, nil
 	}
 
@@ -156,31 +156,42 @@ func parseCodexResponseItem(payload json.RawMessage, sessionFile, sessionID stri
 		return parseCodexMessageItem(item, sessionFile, sessionID, timestamp, lineOffset, raw)
 	}
 
-	if isCodexToolType(item.Type) {
-		name := firstNonEmpty(item.Name, item.ToolName)
-		rawArgs := firstNonEmptyRaw(item.Arguments, item.Input)
-		evt := codexBaseEvent(
-			sessionFile,
-			lineOffset,
-			0,
-			raw,
-			timestamp,
-			sessionID,
-			audit.ActionToolCall,
-			name,
-			firstNonEmpty(normalizeRawJSON(rawArgs)),
-			"",
-			item.Model,
-		)
-		applyToolClassification(evt, "openai", name, rawArgs)
-		if item.Usage != nil {
-			evt.InputTokens = item.Usage.InputTokens
-			evt.OutputTokens = item.Usage.OutputTokens
-		}
+	if evt, ok := codexToolEventFromResponseItem(item, sessionFile, sessionID, timestamp, lineOffset, raw); ok {
 		return []*audit.AuditEvent{evt}, nil
 	}
 
 	return []*audit.AuditEvent{codexUnknownEvent(sessionFile, raw, fmt.Errorf("unknown response_item payload.type: %s", item.Type), lineOffset)}, nil
+}
+
+func codexToolEventFromResponseItem(item codexResponseItem, sessionFile, sessionID string, timestamp time.Time, lineOffset int64, raw []byte) (*audit.AuditEvent, bool) {
+	name := strings.TrimSpace(firstNonEmpty(item.Name, item.ToolName))
+	rawArgs := firstNonEmptyRaw(item.Arguments, item.Input)
+	if !isCodexToolType(item.Type) && !looksLikeCodexToolResponseItem(item, rawArgs) {
+		return nil, false
+	}
+	if name == "" {
+		name = strings.TrimSpace(item.Type)
+	}
+
+	evt := codexBaseEvent(
+		sessionFile,
+		lineOffset,
+		0,
+		raw,
+		timestamp,
+		sessionID,
+		audit.ActionToolCall,
+		name,
+		firstNonEmpty(normalizeRawJSON(rawArgs)),
+		"",
+		item.Model,
+	)
+	applyToolClassification(evt, "openai", name, rawArgs)
+	if item.Usage != nil {
+		evt.InputTokens = item.Usage.InputTokens
+		evt.OutputTokens = item.Usage.OutputTokens
+	}
+	return evt, true
 }
 
 func parseCodexMessageItem(item codexResponseItem, sessionFile, sessionID string, timestamp time.Time, lineOffset int64, raw []byte) ([]*audit.AuditEvent, error) {
@@ -209,9 +220,12 @@ func parseCodexMessageItem(item codexResponseItem, sessionFile, sessionID string
 				assistantText = append(assistantText, block.Text)
 			}
 		default:
-			if isCodexToolType(block.Type) {
-				name := firstNonEmpty(block.Name, block.ToolName)
-				rawArgs := firstNonEmptyRaw(block.Arguments, block.Input)
+			rawArgs := firstNonEmptyRaw(block.Arguments, block.Input)
+			if isCodexToolType(block.Type) || looksLikeCodexToolContentBlock(block, rawArgs) {
+				name := strings.TrimSpace(firstNonEmpty(block.Name, block.ToolName))
+				if name == "" {
+					name = strings.TrimSpace(block.Type)
+				}
 				args := firstNonEmpty(normalizeRawJSON(rawArgs))
 				evt := codexBaseEvent(sessionFile, lineOffset, toolIdx, raw, timestamp, sessionID, audit.ActionToolCall, name, args, "", item.Model)
 				applyToolClassification(evt, "openai", name, rawArgs)
@@ -384,6 +398,55 @@ func isCodexIgnoredResponseType(t string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func looksLikeCodexToolResponseItem(item codexResponseItem, rawArgs json.RawMessage) bool {
+	t := strings.ToLower(strings.TrimSpace(item.Type))
+	if t == "" || t == "message" || isCodexIgnoredResponseType(t) || isCodexDeniedToolLikeType(t) {
+		return false
+	}
+	if isCodexDynamicToolType(t) {
+		return true
+	}
+	if strings.TrimSpace(item.Name) != "" || strings.TrimSpace(item.ToolName) != "" {
+		return len(rawArgs) > 0 && string(rawArgs) != "null"
+	}
+	return false
+}
+
+func looksLikeCodexToolContentBlock(block codexContentBlock, rawArgs json.RawMessage) bool {
+	t := strings.ToLower(strings.TrimSpace(block.Type))
+	if t == "" || t == "text" || t == "output_text" || t == "input_text" || isCodexDeniedToolLikeType(t) {
+		return false
+	}
+	if isCodexDynamicToolType(t) {
+		return true
+	}
+	if strings.TrimSpace(block.Name) != "" || strings.TrimSpace(block.ToolName) != "" {
+		return len(rawArgs) > 0 && string(rawArgs) != "null"
+	}
+	return false
+}
+
+func isCodexDynamicToolType(t string) bool {
+	t = strings.ToLower(strings.TrimSpace(t))
+	if t == "" {
+		return false
+	}
+	return strings.HasPrefix(t, "web_search") || strings.Contains(t, "web_search")
+}
+
+func isCodexDeniedToolLikeType(t string) bool {
+	t = strings.ToLower(strings.TrimSpace(t))
+	if t == "" {
+		return false
+	}
+	switch t {
+	case "execution_result", "function_result", "tool_result", "status_update", "progress_update", "search_result", "code_search_result", "web_search_result":
+		return true
+	default:
+		return strings.HasSuffix(t, "_result")
 	}
 }
 
