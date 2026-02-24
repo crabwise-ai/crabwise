@@ -76,3 +76,40 @@ providers:
 		t.Fatalf("expected default provider display, got: %s", out)
 	}
 }
+
+func TestClassifyCommand_WebSearchDefaultProviderConsistency(t *testing.T) {
+	dir := t.TempDir()
+	registryPath := filepath.Join(dir, "tool_registry.yaml")
+	registryYAML := `version: "1"
+providers:
+  _default:
+    patterns:
+      - match:
+          name_glob: ["web_search*", "*web_search*"]
+        set:
+          category: network
+          effect: execute
+`
+	if err := os.WriteFile(registryPath, []byte(registryYAML), 0600); err != nil {
+		t.Fatalf("write registry: %v", err)
+	}
+
+	cfgPath := filepath.Join(dir, "config.yaml")
+	cfgYAML := "tool_registry:\n  file: " + registryPath + "\n"
+	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	out, err := captureStdout(func() error {
+		cmd := newClassifyCmd()
+		cmd.SetArgs([]string{"web_search_call", "--config", cfgPath})
+		return cmd.Execute()
+	})
+	if err != nil {
+		t.Fatalf("execute classify command: %v", err)
+	}
+
+	if !strings.Contains(out, "Category:  network") || !strings.Contains(out, "Effect:    execute") {
+		t.Fatalf("expected network/execute classification for web_search_call, got: %s", out)
+	}
+}
