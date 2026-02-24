@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/crabwise-ai/crabwise/internal/audit"
@@ -14,6 +15,8 @@ import (
 const CodexParserVersion = "codex-parser-v0.1"
 
 var codexSessionIDPattern = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+var codexSessionModels sync.Map
 
 type codexEnvelope struct {
 	Timestamp string          `json:"timestamp"`
@@ -120,6 +123,9 @@ func parseCodexSessionMeta(payload json.RawMessage, sessionFile, fallbackSession
 	if meta.ID != "" {
 		sessionID = meta.ID
 	}
+	if meta.Model != "" {
+		setCodexSessionModel(sessionFile, sessionID, meta.Model)
+	}
 
 	args := map[string]string{}
 	if meta.CLI != "" {
@@ -136,6 +142,14 @@ func parseCodexResponseItem(payload json.RawMessage, sessionFile, sessionID stri
 	var item codexResponseItem
 	if err := json.Unmarshal(payload, &item); err != nil {
 		return []*audit.AuditEvent{codexUnknownEvent(sessionFile, raw, err, lineOffset)}, nil
+	}
+
+	if item.Model == "" {
+		item.Model = getCodexSessionModel(sessionFile, sessionID)
+	}
+
+	if isCodexIgnoredResponseType(item.Type) {
+		return nil, nil
 	}
 
 	if item.Type == "message" {
@@ -245,7 +259,11 @@ func parseCodexTokenCount(payload json.RawMessage, sessionFile, sessionID string
 		}
 	}
 
-	e := codexBaseEvent(sessionFile, lineOffset, 0, raw, timestamp, sessionID, audit.ActionAIRequest, "token_count", "", "", tc.Model)
+	model := tc.Model
+	if model == "" {
+		model = getCodexSessionModel(sessionFile, sessionID)
+	}
+	e := codexBaseEvent(sessionFile, lineOffset, 0, raw, timestamp, sessionID, audit.ActionAIRequest, "token_count", "", "", model)
 	e.InputTokens = input
 	e.OutputTokens = output
 	return []*audit.AuditEvent{e}, nil
@@ -258,6 +276,9 @@ func parseCodexTurnContext(payload json.RawMessage, sessionFile, sessionID strin
 	}
 
 	args := mustMarshalMap(map[string]string{"approval_policy": tc.ApprovalPolicy})
+	if tc.Model != "" {
+		setCodexSessionModel(sessionFile, sessionID, tc.Model)
+	}
 	e := codexBaseEvent(sessionFile, lineOffset, 0, raw, timestamp, sessionID, audit.ActionSystem, "turn_context", args, tc.CWD, tc.Model)
 	return []*audit.AuditEvent{e}, nil
 }
@@ -353,14 +374,56 @@ func isCodexToolType(t string) bool {
 }
 
 func classifyCodexTool(name string) audit.ActionType {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "bash", "shell", "command", "run_shell_command", "execute_command":
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	normalized = strings.TrimPrefix(normalized, "functions.")
+
+	switch normalized {
+	case "bash", "shell", "command", "run_shell_command", "execute_command", "exec_command":
 		return audit.ActionCommandExecution
 	case "read", "write", "edit", "glob", "grep", "read_file", "write_file", "edit_file", "search_file", "list_files":
 		return audit.ActionFileAccess
 	default:
+		if strings.Contains(normalized, "command") || strings.HasPrefix(normalized, "exec_") {
+			return audit.ActionCommandExecution
+		}
+		if strings.Contains(normalized, "read") || strings.Contains(normalized, "write") || strings.Contains(normalized, "edit") || strings.Contains(normalized, "file") || strings.Contains(normalized, "grep") || strings.Contains(normalized, "glob") {
+			return audit.ActionFileAccess
+		}
 		return audit.ActionToolCall
 	}
+}
+
+func isCodexIgnoredResponseType(t string) bool {
+	switch strings.ToLower(strings.TrimSpace(t)) {
+	case "reasoning", "function_call_output":
+		return true
+	default:
+		return false
+	}
+}
+
+func codexSessionKey(sessionFile, sessionID string) string {
+	if sessionID != "" {
+		return sessionID
+	}
+	return sessionFile
+}
+
+func setCodexSessionModel(sessionFile, sessionID, model string) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return
+	}
+	codexSessionModels.Store(codexSessionKey(sessionFile, sessionID), model)
+}
+
+func getCodexSessionModel(sessionFile, sessionID string) string {
+	v, ok := codexSessionModels.Load(codexSessionKey(sessionFile, sessionID))
+	if !ok {
+		return ""
+	}
+	model, _ := v.(string)
+	return model
 }
 
 func mustMarshalMap(m map[string]string) string {
