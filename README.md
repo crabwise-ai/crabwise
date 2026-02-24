@@ -1,6 +1,6 @@
 # Crabwise
 
-Local-first daemon + CLI that monitors AI agent activity. Watches Claude Code sessions, builds a hash-chained audit trail in SQLite, and lets you query/stream events in real time.
+Local-first daemon + CLI that monitors AI agent activity. Watches Claude Code and Codex CLI sessions, builds a hash-chained audit trail in SQLite, and lets you query/stream events in real time.
 
 ## Install
 
@@ -57,7 +57,7 @@ crabwise stop            # graceful shutdown
 
 ### `crabwise start`
 
-Runs the daemon in the foreground. Discovers Claude Code sessions under `~/.claude/projects/`, parses JSONL logs, and writes events to SQLite with hash chaining.
+Runs the daemon in the foreground. Discovers Claude Code sessions under `~/.claude/projects/` and Codex CLI sessions under `~/.codex/sessions/`, parses JSONL logs, and writes events to SQLite with hash chaining.
 
 Background it yourself with systemd, `&`, or a process manager.
 
@@ -75,11 +75,11 @@ Lists discovered AI agent sessions and their status.
 
 ### `crabwise watch`
 
-Streams audit events in real time as Claude Code generates them.
+Streams audit events in real time as supported agents generate them (Claude Code, Codex CLI).
 
 ```
-14:23:05 [claude-code] tool_call  Read  src/main.ts
-14:23:07 [claude-code] tool_call  Edit  src/main.ts
+14:23:05 [claude-code] tool_call           Read  src/main.ts
+14:23:07 [codex-cli]   command_execution   Bash  go test ./...
 ```
 
 ### `crabwise audit`
