@@ -11,7 +11,7 @@ Revision of the prototype architecture plan. Restructures milestones into vertic
 
 ## What We're Building
 
-Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI agent activity, enforces YAML-defined commandments at infrastructure level, and maintains a tamper-evident audit trail. Targets Claude Code (log watcher) and OpenAI-compatible agents (proxy) as first two adapters.
+Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI agent activity, enforces YAML-defined commandments at infrastructure level, and maintains a tamper-evident audit trail. Targets Claude Code + Codex CLI (log watcher) and OpenAI-compatible agents (proxy).
 
 ## Top User Stories
 
@@ -40,8 +40,8 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 | Daemon lifecycle | start/stop/status, PID file, signal handling (SIGTERM/SIGINT) | ✅ |
 | Config loading | `~/.config/crabwise/config.yaml` with sensible defaults | ✅ |
 | SQLite | `~/.local/share/crabwise/crabwise.db`, WAL mode, schema migrations | ✅ |
-| Agent discovery | /proc scanning for claude/openclaw processes, `~/.claude/` log detection | ✅ |
-| CC log watcher | Locate JSONL sessions via fsnotify, tail, parse into AuditEvents | ✅ |
+| Agent discovery | /proc scanning for claude/codex processes, `~/.claude/` + `~/.codex/` log detection | ✅ |
+| Log watcher adapters | Locate JSONL sessions via fsnotify, tail, parse into AuditEvents (Claude Code + Codex CLI) | ✅ |
 | Audit writer | Batched SQLite inserts, hash-chain integrity | ✅ |
 | CLI queries | `crabwise agents`, `crabwise audit` (time/agent/action filters), `--export json`, `--verify-integrity` | ✅ |
 | IPC | Unix socket (JSON-RPC 2.0), local-user-only permissions | ✅ |
@@ -93,6 +93,13 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 - Redaction tests pass for `.env`, API keys, tokens, common credential patterns
 - SIGHUP reload works atomically
 - `block` rules downgrade to `warn` on log watcher (non-enforcing adapter)
+
+**Post-M1 changes (out of scope):**
+- Added Codex CLI log watcher support (`internal/adapter/logwatcher/codexcli.go`) with parser routing by source/type.
+- Added Codex discovery defaults (`codex` process signature, `~/.codex/sessions/` log path).
+- Added Codex fixtures and end-to-end coverage (`testdata/codex-cli/`, parser tests, CLI audit integration test).
+- Normalized Codex session IDs to UUID suffix across parser + discovery for consistent correlation in `agents`/`audit`.
+- Fixed Codex token_count merge behavior to support partial `usage` payloads without dropping top-level token counts.
 
 ### M2 — Proxy + Block Enforcement (Weeks 3-4)
 
@@ -166,17 +173,18 @@ Benchmarks use this standard profile for reproducibility:
 
 ## Implementation Specs
 
-### Claude Code Log Parsing Strategy
+### Log Parsing Strategy (Claude Code + Codex CLI)
 
-CC logs at `~/.claude/projects/<project-hash>/sessions/<session-id>/` as JSONL. **Not a public API** — highest technical risk.
+Claude Code logs at `~/.claude/projects/<project-hash>/sessions/<session-id>/` and Codex CLI logs at `~/.codex/sessions/...` as JSONL. **Not public APIs** — highest technical risk.
 
 **Strategy:**
 - **Tolerant decoder:** Parse known fields, capture entire record as `raw_payload` on unknown/malformed
 - **Schema version detection:** Fingerprint records by field presence, track parser version per event
 - **Graceful degradation:** Unknown record types → `action_type: "unknown"`, still audited
-- **File discovery:** fsnotify on `~/.claude/projects/` for new sessions; polling fallback (30s) if inotify limit exhausted
+- **File discovery:** fsnotify on `~/.claude/projects/` and `~/.codex/sessions/` for new sessions; polling fallback (30s) if inotify limit exhausted
 - **Tail strategy:** Track file offset per session file in SQLite; resume from last offset on restart
 - **Drift detection:** Track `unknown_record_ratio` metric. If >50% unknown, emit `parser_drift` warning
+- **Parser routing:** select parser by source path and record type (Claude Code vs Codex CLI)
 
 **Event extraction targets:**
 
@@ -308,9 +316,10 @@ discovery:
   scan_interval: 10s
   process_signatures:
     - claude
-    - openclaw
+    - codex
   log_paths:
     - ~/.claude/projects/
+    - ~/.codex/sessions/
 
 adapters:
   log_watcher:
@@ -390,7 +399,7 @@ Request arrives at proxy
 
 ### Filesystem Watching
 
-- **Primary:** fsnotify (wraps inotify on Linux) on `~/.claude/projects/`
+- **Primary:** fsnotify (wraps inotify on Linux) on `~/.claude/projects/` and `~/.codex/sessions/`
 - **Fallback:** If fsnotify watch limit exceeded, degrade to polling at configured interval
 - **New sessions:** Watch for new directories, auto-add watches on session files
 - **File rotation:** Detect truncation (offset > file size), reset offset to 0
@@ -490,7 +499,9 @@ crabwise/
 │   │   ├── adapter.go              # Adapter interface
 │   │   ├── logwatcher/
 │   │   │   ├── logwatcher.go       # Base log watcher (fsnotify + tail)
-│   │   │   └── claudecode.go       # CC JSONL parser
+│   │   │   ├── claudecode.go       # CC JSONL parser
+│   │   │   ├── codexcli.go         # Codex CLI JSONL parser
+│   │   │   └── parser_router.go    # Source/type-based parser routing
 │   │   └── proxy/
 │   │       ├── proxy.go            # HTTP proxy server
 │   │       ├── streaming.go        # SSE passthrough
@@ -530,6 +541,7 @@ crabwise/
 │           └── 002_add_origin.sql  # hostname + user_id columns
 ├── testdata/
 │   ├── claude-code/                # CC log fixtures
+│   ├── codex-cli/                  # Codex CLI log fixtures
 │   ├── commandments/               # YAML test cases
 │   └── proxy/                      # Request/response pairs
 ├── configs/
@@ -555,8 +567,8 @@ crabwise/
 
 ## Verification Plan
 
-1. **Agent discovery:** Start Claude Code → `crabwise agents` shows it discovered
-2. **Log watcher audit:** Use CC normally → `crabwise audit` shows tool calls, commands, AI requests with token counts
+1. **Agent discovery:** Start Claude Code/Codex CLI → `crabwise agents` shows both when active
+2. **Log watcher audit:** Use Claude Code/Codex CLI normally → `crabwise audit` shows tool calls, commands, AI requests with token counts
 3. **Parser safety:** Replay mixed-version JSONL fixtures → unknown records captured via raw_payload, no panics
 4. **Commandment warn:** `protect-credentials` commandment → CC reads `.env` → `crabwise audit --triggered` shows warning
 5. **Proxy block:** `OPENAI_BASE_URL=localhost:9119` → blocked model → denied, logged in audit
