@@ -1,0 +1,4 @@
+not valid json
+{"timestamp":"2026-02-24T12:00:00.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":"unterminated"
+{"timestamp":"2026-02-24T12:00:01.000Z","type":"response_item","payload":{"type":"mystery_payload","foo":"bar"}}
+{"timestamp":"2026-02-24T12:00:02.000Z","type":"event_msg","payload":{"type":"turn_aborted","reason":"network timeout"}}

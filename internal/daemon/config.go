@@ -111,9 +111,12 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.Daemon.LogLevel = "info"
 		cfg.Daemon.PIDFile = "~/.local/share/crabwise/crabwise.pid"
 		cfg.Discovery.ScanInterval = Duration(10 * time.Second)
-		cfg.Discovery.ProcessSignatures = []string{"claude"}
+		cfg.Discovery.ProcessSignatures = []string{"claude", "codex"}
 		home, _ := os.UserHomeDir()
-		cfg.Discovery.LogPaths = []string{filepath.Join(home, ".claude", "projects")}
+		cfg.Discovery.LogPaths = []string{
+			filepath.Join(home, ".claude", "projects"),
+			filepath.Join(home, ".codex", "sessions"),
+		}
 		cfg.Adapters.LogWatcher.Enabled = true
 		cfg.Adapters.LogWatcher.PollFallbackInterval = Duration(30 * time.Second)
 		cfg.Queue.Capacity = 10000
