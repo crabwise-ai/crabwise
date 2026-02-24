@@ -258,21 +258,29 @@ internal/commandments/
 
 ## Exit Gates
 
-- [ ] Eval latency: p95 < 2ms, p99 < 8ms (percentile harness, 10k iterations)
-- [ ] Rule ordering and conflict behavior covered by tests
-- [ ] Outcome precedence matrix tested (all combos, only upgrades)
-- [ ] Deterministic serialization for evaluated/triggered metadata verified in hash tests
+- [x] Eval latency: p95 < 2ms, p99 < 8ms (percentile harness, 10k iterations)
+- [x] Rule ordering and conflict behavior covered by tests
+- [x] Outcome precedence matrix tested (all combos, only upgrades)
+- [x] Deterministic serialization for evaluated/triggered metadata verified in hash tests
 - [ ] SIGHUP and CLI reload are atomic (bad file preserves old rules)
-- [ ] Reload/load failures emit system audit events (in hash chain)
-- [ ] System events exempt from commandment evaluation (no self-referential triggers)
-- [ ] Block downgrades to warn on log watcher
-- [ ] Redaction tests pass for key/token/credential patterns
-- [ ] Redaction caps enforced (50 max replacements, >1MB safe truncation)
-- [ ] Rule caps validated at load (100 rules, 200 patterns, 1024-char pattern)
-- [ ] Matcher semantics match spec (case-sensitive, no normalization, exact list, unanchored regex)
-- [ ] `crabwise audit --triggered` shows flagged events
-- [ ] `go test -race -count=1 ./...` passes
+- [x] Reload/load failures emit system audit events (in hash chain)
+- [x] System events exempt from commandment evaluation (no self-referential triggers)
+- [x] Block downgrades to warn on log watcher
+- [x] Redaction tests pass for key/token/credential patterns
+- [x] Redaction caps enforced (50 max replacements, >1MB safe truncation)
+- [x] Rule caps validated at load (100 rules, 200 patterns, 1024-char pattern)
+- [x] Matcher semantics match spec (case-sensitive, no normalization, exact list, unanchored regex)
+- [x] `crabwise audit --triggered` shows flagged events
+- [x] `go test -race -count=1 ./...` passes
 - [ ] `crabwise commandments list` shows 4 starter rules
+
+## Post-M1 Out-of-Scope Changes (Implemented)
+
+- Added Codex CLI log watcher support with source/type parser routing.
+- Added Codex discovery defaults (`codex` process signature, `~/.codex/sessions/` log path).
+- Added Codex fixtures and end-to-end test coverage.
+- Normalized Codex session IDs across parser and discovery for consistent correlation.
+- Fixed Codex token_count merge behavior for partial `usage` payloads.
 
 ## Verification Checklist
 
@@ -289,20 +297,20 @@ internal/commandments/
 
 ## Task Tracker
 
-- [ ] T1 Logger interfaces + precedence
-- [ ] T2 Config plumbing
-- [ ] T3 Schema + validation
-- [ ] T4 Matcher compilation
-- [ ] T5 Evaluation engine
-- [ ] T6 Starter pack + embed
-- [ ] T7 Redaction pipeline
-- [ ] T8 Fixtures
-- [ ] T9 Daemon wiring + reload observability
-- [ ] T10 IPC surface
-- [ ] T11 CLI commands
-- [ ] T12 Audit query UX
-- [ ] T13 Init command wiring
-- [ ] T14 Unit tests
-- [ ] T15 Integration test
-- [ ] T16 Latency SLO harness
-- [ ] T17 Plan/document sync
+- [x] T1 Logger interfaces + precedence
+- [x] T2 Config plumbing
+- [x] T3 Schema + validation
+- [x] T4 Matcher compilation
+- [x] T5 Evaluation engine
+- [x] T6 Starter pack + embed
+- [x] T7 Redaction pipeline
+- [x] T8 Fixtures
+- [x] T9 Daemon wiring + reload observability
+- [x] T10 IPC surface
+- [x] T11 CLI commands
+- [x] T12 Audit query UX
+- [x] T13 Init command wiring
+- [x] T14 Unit tests
+- [x] T15 Integration test
+- [x] T16 Latency SLO harness
+- [x] T17 Plan/document sync
