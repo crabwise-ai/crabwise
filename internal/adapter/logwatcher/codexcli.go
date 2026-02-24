@@ -148,7 +148,7 @@ func parseCodexResponseItem(payload json.RawMessage, sessionFile, sessionID stri
 		item.Model = getCodexSessionModel(sessionFile, sessionID)
 	}
 
-	if isCodexIgnoredResponseType(item.Type) {
+	if isCodexIgnoredResponseType(item.Type) || isCodexDeniedToolLikeType(item.Type) {
 		return nil, nil
 	}
 
@@ -403,30 +403,51 @@ func isCodexIgnoredResponseType(t string) bool {
 
 func looksLikeCodexToolResponseItem(item codexResponseItem, rawArgs json.RawMessage) bool {
 	t := strings.ToLower(strings.TrimSpace(item.Type))
-	if t == "" || t == "message" || isCodexIgnoredResponseType(t) {
+	if t == "" || t == "message" || isCodexIgnoredResponseType(t) || isCodexDeniedToolLikeType(t) {
 		return false
 	}
-	if len(rawArgs) > 0 && string(rawArgs) != "null" {
+	if isCodexDynamicToolType(t) {
 		return true
 	}
 	if strings.TrimSpace(item.Name) != "" || strings.TrimSpace(item.ToolName) != "" {
-		return true
+		return len(rawArgs) > 0 && string(rawArgs) != "null"
 	}
-	return strings.HasSuffix(t, "_call") || strings.Contains(t, "tool") || strings.Contains(t, "search") || strings.Contains(t, "exec")
+	return false
 }
 
 func looksLikeCodexToolContentBlock(block codexContentBlock, rawArgs json.RawMessage) bool {
 	t := strings.ToLower(strings.TrimSpace(block.Type))
-	if t == "" || t == "text" || t == "output_text" || t == "input_text" {
+	if t == "" || t == "text" || t == "output_text" || t == "input_text" || isCodexDeniedToolLikeType(t) {
 		return false
 	}
-	if len(rawArgs) > 0 && string(rawArgs) != "null" {
+	if isCodexDynamicToolType(t) {
 		return true
 	}
 	if strings.TrimSpace(block.Name) != "" || strings.TrimSpace(block.ToolName) != "" {
-		return true
+		return len(rawArgs) > 0 && string(rawArgs) != "null"
 	}
-	return strings.HasSuffix(t, "_call") || strings.Contains(t, "tool") || strings.Contains(t, "search") || strings.Contains(t, "exec")
+	return false
+}
+
+func isCodexDynamicToolType(t string) bool {
+	t = strings.ToLower(strings.TrimSpace(t))
+	if t == "" {
+		return false
+	}
+	return strings.HasPrefix(t, "web_search") || strings.Contains(t, "web_search")
+}
+
+func isCodexDeniedToolLikeType(t string) bool {
+	t = strings.ToLower(strings.TrimSpace(t))
+	if t == "" {
+		return false
+	}
+	switch t {
+	case "execution_result", "function_result", "tool_result", "status_update", "progress_update", "search_result", "code_search_result", "web_search_result":
+		return true
+	default:
+		return strings.HasSuffix(t, "_result")
+	}
 }
 
 func codexSessionKey(sessionFile, sessionID string) string {

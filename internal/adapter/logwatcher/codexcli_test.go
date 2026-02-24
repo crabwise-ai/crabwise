@@ -199,6 +199,30 @@ func TestParseCodexResponseItem_WebSearchCallClassifiedAsNetwork(t *testing.T) {
 	}
 }
 
+func TestParseCodexResponseItem_ExecutionResultIgnored(t *testing.T) {
+	line := `{"timestamp":"2026-02-24T18:21:45.000Z","type":"response_item","payload":{"type":"execution_result","arguments":{"status":"ok","duration_ms":12}}}`
+
+	events, err := parseCodexLine([]byte(line), "/tmp/rollout-2026-02-24T18-00-00-019c7b9d-932d-7bb3-ae9b-e8e13b639117.jsonl", 15)
+	if err != nil {
+		t.Fatalf("parse execution_result: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("expected 0 events for execution_result, got %d", len(events))
+	}
+}
+
+func TestParseCodexResponseItem_CodeSearchResultIgnored(t *testing.T) {
+	line := `{"timestamp":"2026-02-24T18:21:46.000Z","type":"response_item","payload":{"type":"code_search_result","arguments":{"count":3}}}`
+
+	events, err := parseCodexLine([]byte(line), "/tmp/rollout-2026-02-24T18-00-00-019c7b9d-932d-7bb3-ae9b-e8e13b639117.jsonl", 16)
+	if err != nil {
+		t.Fatalf("parse code_search_result: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("expected 0 events for code_search_result, got %d", len(events))
+	}
+}
+
 func TestParseCodexFixture_Basic(t *testing.T) {
 	data, err := os.ReadFile("../../../testdata/codex-cli/session-basic.jsonl")
 	if err != nil {

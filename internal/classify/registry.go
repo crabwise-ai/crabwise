@@ -64,7 +64,12 @@ func LoadRegistry(path string, fallbackYAML []byte) (*Registry, error) {
 	if path != "" {
 		data, err := os.ReadFile(path)
 		if err == nil {
-			return LoadRegistryYAML(data)
+			registry, cfg, err := loadRegistryWithConfig(data)
+			if err != nil {
+				return nil, err
+			}
+			warnUserRegistryDrift(path, cfg, fallbackYAML)
+			return registry, nil
 		}
 		if !os.IsNotExist(err) {
 			return nil, err
@@ -75,15 +80,31 @@ func LoadRegistry(path string, fallbackYAML []byte) (*Registry, error) {
 		return nil, fmt.Errorf("no tool registry source available")
 	}
 
-	return LoadRegistryYAML(fallbackYAML)
+	registry, _, err := loadRegistryWithConfig(fallbackYAML)
+	if err != nil {
+		return nil, err
+	}
+	return registry, nil
 }
 
 func LoadRegistryYAML(data []byte) (*Registry, error) {
-	var cfg RegistryConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	registry, _, err := loadRegistryWithConfig(data)
+	if err != nil {
 		return nil, err
 	}
-	return NewRegistry(cfg)
+	return registry, nil
+}
+
+func loadRegistryWithConfig(data []byte) (*Registry, RegistryConfig, error) {
+	var cfg RegistryConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, RegistryConfig{}, err
+	}
+	registry, err := NewRegistry(cfg)
+	if err != nil {
+		return nil, RegistryConfig{}, err
+	}
+	return registry, cfg, nil
 }
 
 func NewRegistry(cfg RegistryConfig) (*Registry, error) {
@@ -377,4 +398,40 @@ func sharedGlobs(left, right []string) []string {
 	}
 
 	return overlaps
+}
+
+func warnUserRegistryDrift(path string, loaded RegistryConfig, fallbackYAML []byte) {
+	if path == "" || len(fallbackYAML) == 0 {
+		return
+	}
+	var embedded RegistryConfig
+	if err := yaml.Unmarshal(fallbackYAML, &embedded); err != nil {
+		return
+	}
+
+	loadedVersion := normalizeTaxonomyVersion(loaded.Version)
+	embeddedVersion := normalizeTaxonomyVersion(embedded.Version)
+	if loadedVersion != "" && embeddedVersion != "" && loadedVersion != embeddedVersion {
+		log.Printf("classify: tool registry %q may be stale (version %s != embedded %s); run `crabwise init` and merge tool_registry updates", path, loadedVersion, embeddedVersion)
+	}
+
+	if !hasPattern(loaded, "openai", "web_search*") || !hasPattern(loaded, "_default", "web_search*") {
+		log.Printf("classify: tool registry %q may be stale (missing web_search taxonomy pattern); run `crabwise init` and merge tool_registry updates", path)
+	}
+}
+
+func hasPattern(cfg RegistryConfig, provider, pattern string) bool {
+	p, ok := cfg.Providers[provider]
+	if !ok {
+		return false
+	}
+	pattern = strings.ToLower(strings.TrimSpace(pattern))
+	for _, rule := range p.Patterns {
+		for _, glob := range rule.Match.NameGlob {
+			if strings.ToLower(strings.TrimSpace(glob)) == pattern {
+				return true
+			}
+		}
+	}
+	return false
 }
