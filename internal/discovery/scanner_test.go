@@ -26,7 +26,7 @@ func TestDetectAgentType(t *testing.T) {
 func TestScanLogPaths_DetectsClaudeAndCodexSessions(t *testing.T) {
 	root := t.TempDir()
 	claudeFile := filepath.Join(root, ".claude", "projects", "abc", "session.jsonl")
-	codexFile := filepath.Join(root, ".codex", "sessions", "2026", "02", "24", "session.jsonl")
+	codexFile := filepath.Join(root, ".codex", "sessions", "2026", "02", "24", "rollout-2026-02-24T10-00-00-019c7b92-c543-7ac3-aad5-e8681852a8c5.jsonl")
 
 	for _, path := range []string{claudeFile, codexFile} {
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
@@ -52,5 +52,17 @@ func TestScanLogPaths_DetectsClaudeAndCodexSessions(t *testing.T) {
 	}
 	if !seen["codex-cli"] {
 		t.Fatal("expected codex-cli discovery")
+	}
+
+	codexID := ""
+	for _, agent := range agents {
+		if agent.Type == "codex-cli" {
+			codexID = agent.ID
+			break
+		}
+	}
+
+	if codexID != "codex-cli/019c7b92-c543-7ac3-aad5-e8681852a8c5" {
+		t.Fatalf("expected normalized codex session ID, got %q", codexID)
 	}
 }

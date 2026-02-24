@@ -51,6 +51,39 @@ func TestParseLineForSource_CodexByType(t *testing.T) {
 	}
 }
 
+func TestParseCodexSessionMeta_DoesNotUseProviderAsModel(t *testing.T) {
+	line := `{"timestamp":"2026-02-24T10:00:00.000Z","type":"session_meta","payload":{"id":"019c7b92-c543-7ac3-aad5-e8681852a8c5","model_provider":"openai"}}`
+
+	events, err := parseCodexLine([]byte(line), "/tmp/rollout-2026-02-24T10-00-00-019c7b92-c543-7ac3-aad5-e8681852a8c5.jsonl", 0)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	if events[0].Model != "" {
+		t.Fatalf("expected empty model when only provider is present, got %q", events[0].Model)
+	}
+}
+
+func TestParseCodexTokenCount_PartialUsageOverridesIndependently(t *testing.T) {
+	line := `{"timestamp":"2026-02-24T10:00:04.000Z","type":"token_count","payload":{"model":"gpt-5.1-codex-mini","input_tokens":130,"output_tokens":20,"usage":{"output_tokens":30}}}`
+
+	events, err := parseCodexLine([]byte(line), "/tmp/session.jsonl", 10)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	e := events[0]
+	if e.InputTokens != 130 || e.OutputTokens != 30 {
+		t.Fatalf("expected 130/30 tokens, got %d/%d", e.InputTokens, e.OutputTokens)
+	}
+}
+
 func TestParseCodexResponseItem_UserPrompt(t *testing.T) {
 	line := `{"timestamp":"2026-02-24T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Read the main.go file"}]}}`
 

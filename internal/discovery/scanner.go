@@ -4,10 +4,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
+
+var codexSessionIDPattern = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 type AgentInfo struct {
 	ID           string    `json:"id"`
@@ -72,8 +75,8 @@ func ScanLogPaths(logPaths []string) []AgentInfo {
 				return nil
 			}
 
-			sessionID := extractSessionID(path)
 			agentType := detectAgentType(path)
+			sessionID := extractSessionIDForAgent(path, agentType)
 			agentSessionID := agentType + "/" + sessionID
 			if sessionID == "" || seen[agentSessionID] {
 				return nil
@@ -99,9 +102,17 @@ func agentIDFromPID(agentType string, pid int) string {
 	return agentType + "/pid-" + strconv.Itoa(pid)
 }
 
-func extractSessionID(path string) string {
+func extractSessionIDForAgent(path, agentType string) string {
 	base := filepath.Base(path)
-	return strings.TrimSuffix(base, ".jsonl")
+	sessionID := strings.TrimSuffix(base, ".jsonl")
+
+	if agentType == "codex-cli" {
+		if match := codexSessionIDPattern.FindString(sessionID); match != "" {
+			return strings.ToLower(match)
+		}
+	}
+
+	return sessionID
 }
 
 func detectAgentType(path string) string {

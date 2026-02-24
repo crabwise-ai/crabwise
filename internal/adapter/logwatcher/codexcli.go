@@ -65,10 +65,15 @@ type codexTurnContext struct {
 }
 
 type codexTokenCount struct {
-	Model        string      `json:"model"`
-	InputTokens  int64       `json:"input_tokens"`
-	OutputTokens int64       `json:"output_tokens"`
-	Usage        *codexUsage `json:"usage"`
+	Model        string                `json:"model"`
+	InputTokens  int64                 `json:"input_tokens"`
+	OutputTokens int64                 `json:"output_tokens"`
+	Usage        *codexTokenCountUsage `json:"usage"`
+}
+
+type codexTokenCountUsage struct {
+	InputTokens  *int64 `json:"input_tokens"`
+	OutputTokens *int64 `json:"output_tokens"`
 }
 
 type codexUsage struct {
@@ -124,7 +129,7 @@ func parseCodexSessionMeta(payload json.RawMessage, sessionFile, fallbackSession
 		args["model_provider"] = meta.ModelFamily
 	}
 
-	return []*audit.AuditEvent{codexBaseEvent(sessionFile, lineOffset, 0, raw, timestamp, sessionID, audit.ActionSystem, "session_meta", mustMarshalMap(args), meta.CWD, firstNonEmpty(meta.Model, meta.ModelFamily))}, nil
+	return []*audit.AuditEvent{codexBaseEvent(sessionFile, lineOffset, 0, raw, timestamp, sessionID, audit.ActionSystem, "session_meta", mustMarshalMap(args), meta.CWD, meta.Model)}, nil
 }
 
 func parseCodexResponseItem(payload json.RawMessage, sessionFile, sessionID string, timestamp time.Time, lineOffset int64, raw []byte) ([]*audit.AuditEvent, error) {
@@ -232,9 +237,11 @@ func parseCodexTokenCount(payload json.RawMessage, sessionFile, sessionID string
 	input := tc.InputTokens
 	output := tc.OutputTokens
 	if tc.Usage != nil {
-		if tc.Usage.InputTokens != 0 || tc.Usage.OutputTokens != 0 {
-			input = tc.Usage.InputTokens
-			output = tc.Usage.OutputTokens
+		if tc.Usage.InputTokens != nil {
+			input = *tc.Usage.InputTokens
+		}
+		if tc.Usage.OutputTokens != nil {
+			output = *tc.Usage.OutputTokens
 		}
 	}
 
