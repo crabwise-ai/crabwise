@@ -4,17 +4,20 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
 
+var codexSessionIDPattern = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
 type AgentInfo struct {
-	ID          string    `json:"id"`
-	Type        string    `json:"type"`
-	PID         int       `json:"pid"`
-	Status      string    `json:"status"` // active, inactive
-	SessionFile string    `json:"session_file,omitempty"`
+	ID           string    `json:"id"`
+	Type         string    `json:"type"`
+	PID          int       `json:"pid"`
+	Status       string    `json:"status"` // active, inactive
+	SessionFile  string    `json:"session_file,omitempty"`
 	DiscoveredAt time.Time `json:"discovered_at"`
 }
 
@@ -72,13 +75,13 @@ func ScanLogPaths(logPaths []string) []AgentInfo {
 				return nil
 			}
 
-			sessionID := extractSessionID(path)
-			if sessionID == "" || seen[sessionID] {
+			agentType := detectAgentType(path)
+			sessionID := extractSessionIDForAgent(path, agentType)
+			agentSessionID := agentType + "/" + sessionID
+			if sessionID == "" || seen[agentSessionID] {
 				return nil
 			}
-			seen[sessionID] = true
-
-			agentType := detectAgentType(path)
+			seen[agentSessionID] = true
 			agents = append(agents, AgentInfo{
 				ID:           agentType + "/" + sessionID,
 				Type:         agentType,
@@ -99,14 +102,25 @@ func agentIDFromPID(agentType string, pid int) string {
 	return agentType + "/pid-" + strconv.Itoa(pid)
 }
 
-func extractSessionID(path string) string {
+func extractSessionIDForAgent(path, agentType string) string {
 	base := filepath.Base(path)
-	return strings.TrimSuffix(base, ".jsonl")
+	sessionID := strings.TrimSuffix(base, ".jsonl")
+
+	if agentType == "codex-cli" {
+		if match := codexSessionIDPattern.FindString(sessionID); match != "" {
+			return strings.ToLower(match)
+		}
+	}
+
+	return sessionID
 }
 
 func detectAgentType(path string) string {
 	if strings.Contains(path, ".claude") {
 		return "claude-code"
+	}
+	if strings.Contains(path, ".codex") {
+		return "codex-cli"
 	}
 	return "unknown"
 }
