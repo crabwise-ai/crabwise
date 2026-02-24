@@ -1,5 +1,14 @@
 # Crabwise
 
+```
+▄█▀      ▀█▄
+█▄█ ▄  ▄ █▄█
+█▀ ▄█▄▄█▄ ▀█
+▀██████████▀
+ ▄████████▄
+█  █    █  █
+```
+
 Local-first daemon + CLI that monitors AI agent activity. Watches Claude Code and Codex CLI sessions, builds a hash-chained audit trail in SQLite, and lets you query/stream events in real time.
 
 ## Install
