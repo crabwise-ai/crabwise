@@ -156,6 +156,15 @@ func (d *Daemon) Run(ctx context.Context) error {
 			log.Printf("daemon: proxy init error: %v", err)
 		} else {
 			d.proxy = px
+			if d.cfg.Audit.RawPayloadEnabled {
+				rpm := audit.NewRawPayloadManager(
+					d.cfg.Daemon.RawPayloadDir,
+					d.cfg.Audit.RawPayloadMaxSize,
+					d.cfg.Audit.RawPayloadQuota,
+					d.cfg.Audit.RetentionDays,
+				)
+				d.proxy.SetRawPayloadWriter(rpm)
+			}
 			go func() {
 				if err := d.proxy.Start(ctx); err != nil {
 					log.Printf("daemon: proxy server error: %v", err)
@@ -469,6 +478,12 @@ func (d *Daemon) reloadRuntime() (int, error) {
 	logwatcher.SetClassifier(d.classifier)
 	if d.proxy != nil {
 		d.proxy.SetClassifier(d.classifier)
+		if mapErr := d.proxy.ReloadMappings(); mapErr != nil {
+			log.Printf("daemon: proxy mapping reload error: %v", mapErr)
+			d.emitSystemEvent("proxy_mappings_reload_failed", audit.OutcomeFailure, map[string]interface{}{"error": mapErr.Error()})
+		} else {
+			d.emitSystemEvent("proxy_mappings_reload_ok", audit.OutcomeSuccess, nil)
+		}
 	}
 
 	rulesLoaded := len(d.commandments.List())
@@ -511,6 +526,7 @@ func (d *Daemon) proxyConfig() proxy.Config {
 		StreamIdleTimeout:   d.cfg.Adapters.Proxy.StreamIdleTimeout.Duration(),
 		MaxRequestBody:      d.cfg.Adapters.Proxy.MaxRequestBody,
 		RedactEgressDefault: d.cfg.Adapters.Proxy.RedactEgressDefault,
+		RedactPatterns:      d.cfg.Adapters.Proxy.RedactPatterns,
 		MappingsDir:         d.cfg.Adapters.Proxy.MappingsDir,
 		MappingStrictMode:   d.cfg.Adapters.Proxy.MappingStrictMode,
 		Providers:           providers,

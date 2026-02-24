@@ -11,11 +11,12 @@ import (
 )
 
 type streamTelemetry struct {
-	Model        string
-	FinishReason string
-	InputTokens  int64
-	OutputTokens int64
-	HasUsage     bool
+	Model          string
+	FinishReason   string
+	InputTokens    int64
+	OutputTokens   int64
+	HasUsage       bool
+	FirstTokenAt   time.Time
 }
 
 type streamLine struct {
@@ -53,6 +54,8 @@ func proxySSEStream(w http.ResponseWriter, src io.ReadCloser, transport Transpor
 	timer := time.NewTimer(idleTimeout)
 	defer timer.Stop()
 
+	var pendingEventType string
+
 	for {
 		select {
 		case <-timer.C:
@@ -71,6 +74,10 @@ func proxySSEStream(w http.ResponseWriter, src io.ReadCloser, transport Transpor
 				flusher.Flush()
 			}
 
+			if out.FirstTokenAt.IsZero() && hasContent(msg.data) {
+				out.FirstTokenAt = time.Now()
+			}
+
 			if !timer.Stop() {
 				select {
 				case <-timer.C:
@@ -79,14 +86,22 @@ func proxySSEStream(w http.ResponseWriter, src io.ReadCloser, transport Transpor
 			}
 			timer.Reset(idleTimeout)
 
+			if eventType := parseSSEEventType(msg.data); eventType != "" {
+				pendingEventType = eventType
+				continue
+			}
+
 			payload := parseSSEData(msg.data)
 			if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) {
 				continue
 			}
 			event, err := transport.ParseStreamEvent(payload)
 			if err != nil {
-				continue // passthrough priority
+				continue
 			}
+			event.EventType = pendingEventType
+			pendingEventType = ""
+
 			if event.Model != "" {
 				out.Model = event.Model
 			}
@@ -111,4 +126,17 @@ func parseSSEData(line []byte) []byte {
 		return nil
 	}
 	return []byte(strings.TrimSpace(strings.TrimPrefix(s, "data:")))
+}
+
+func parseSSEEventType(line []byte) string {
+	s := strings.TrimSpace(string(line))
+	if strings.HasPrefix(s, "event:") {
+		return strings.TrimSpace(strings.TrimPrefix(s, "event:"))
+	}
+	return ""
+}
+
+func hasContent(line []byte) bool {
+	s := strings.TrimSpace(string(line))
+	return s != "" && !strings.HasPrefix(s, ":") && s != "data: [DONE]"
 }

@@ -3,6 +3,8 @@ package proxy
 import (
 	"context"
 	"net/http"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,6 +24,7 @@ type Config struct {
 	MappingStrictMode   bool
 	Providers           map[string]ProviderConfig
 	Pricing             map[string]Pricing
+	RedactPatterns      []string
 }
 
 type ProviderConfig struct {
@@ -40,6 +43,26 @@ type Transport interface {
 	ParseStreamEvent(data []byte) (StreamEvent, error)
 }
 
+type TransportFactory func(cfg ProviderConfig, upstreamTimeout time.Duration) Transport
+
+var (
+	transportsMu       sync.RWMutex
+	transportFactories = map[string]TransportFactory{}
+)
+
+func RegisterTransport(name string, factory TransportFactory) {
+	transportsMu.Lock()
+	defer transportsMu.Unlock()
+	transportFactories[strings.ToLower(name)] = factory
+}
+
+func lookupTransportFactory(name string) (TransportFactory, bool) {
+	transportsMu.RLock()
+	defer transportsMu.RUnlock()
+	f, ok := transportFactories[strings.ToLower(name)]
+	return f, ok
+}
+
 type StreamEvent struct {
 	Model        string
 	FinishReason string
@@ -47,6 +70,7 @@ type StreamEvent struct {
 	OutputTokens int64
 	HasUsage     bool
 	HasFinish    bool
+	EventType    string // SSE event: field value (e.g. "content_block_delta" for Anthropic)
 }
 
 type NormalizedTool struct {
@@ -85,4 +109,9 @@ type ProviderRuntime struct {
 	Config    ProviderConfig
 	Transport Transport
 	Mapping   *Spec
+}
+
+// RawPayloadWriter is satisfied by audit.RawPayloadManager.
+type RawPayloadWriter interface {
+	Write(eventID string, payload []byte) (string, error)
 }

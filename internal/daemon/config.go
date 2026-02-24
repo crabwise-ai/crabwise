@@ -65,6 +65,7 @@ type ProxyConfig struct {
 	StreamIdleTimeout   Duration                       `yaml:"stream_idle_timeout"`
 	MaxRequestBody      int64                          `yaml:"max_request_body"`
 	RedactEgressDefault bool                           `yaml:"redact_egress_default"`
+	RedactPatterns      []string                       `yaml:"redact_patterns"`
 	MappingsDir         string                         `yaml:"mappings_dir"`
 	MappingStrictMode   bool                           `yaml:"mapping_strict_mode"`
 	Providers           map[string]ProxyProviderConfig `yaml:"providers"`
