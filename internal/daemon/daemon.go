@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -394,10 +395,16 @@ func (d *Daemon) reloadRuntime() (int, error) {
 	}
 
 	if cmdErr != nil || regErr != nil {
-		if cmdErr != nil {
-			return 0, cmdErr
+		if cmdErr != nil && regErr != nil {
+			return 0, fmt.Errorf("runtime reload failed: %w", errors.Join(
+				fmt.Errorf("reload commandments: %w", cmdErr),
+				fmt.Errorf("reload tool registry: %w", regErr),
+			))
 		}
-		return 0, regErr
+		if cmdErr != nil {
+			return 0, fmt.Errorf("runtime reload failed: reload commandments: %w", cmdErr)
+		}
+		return 0, fmt.Errorf("runtime reload failed: reload tool registry: %w", regErr)
 	}
 
 	d.commandments = newCommandments

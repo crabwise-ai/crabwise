@@ -23,6 +23,9 @@ providers:
         effect: read_only
 
   openai:
+    # OpenAI-family integrations can emit both canonical names (run_shell_command)
+    # and generic aliases (bash/read/write). Classifier matching handles exact and
+    # normalized lower-case fallback, so include provider-observed spellings here.
     tools:
       bash:
         category: shell

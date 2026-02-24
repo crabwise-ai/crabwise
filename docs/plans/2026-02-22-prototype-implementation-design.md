@@ -563,8 +563,7 @@ crabwise/
 │   └── store/
 │       ├── sqlite.go               # Connection + migrations
 │       └── migrations/
-│           ├── 001_initial.sql
-│           └── 002_add_origin.sql  # hostname + user_id columns
+│           └── 001_initial.sql
 ├── testdata/
 │   ├── claude-code/                # CC log fixtures
 │   ├── codex-cli/                  # Codex CLI log fixtures

@@ -17,7 +17,7 @@ func TestToolClassificationConformance_ClaudeAndCodex(t *testing.T) {
 		{
 			name:           "bash",
 			claudeLine:     `{"type":"assistant","sessionId":"sess-001","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"go test ./..."}}],"usage":{"input_tokens":1,"output_tokens":1}},"uuid":"u1","timestamp":"2026-02-22T14:00:00.000Z"}`,
-			codexLine:      `{"timestamp":"2026-02-24T11:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","model":"gpt-5.1-codex","content":[{"type":"tool_call","name":"Bash","arguments":{"command":"go test ./..."}}],"usage":{"input_tokens":1,"output_tokens":1}}}`,
+			codexLine:      `{"timestamp":"2026-02-24T11:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","model":"gpt-5.1-codex","content":[{"type":"tool_call","name":"run_shell_command","arguments":{"command":"go test ./..."}}],"usage":{"input_tokens":1,"output_tokens":1}}}`,
 			expectCategory: classify.CategoryShell,
 			expectEffect:   classify.EffectExecute,
 		},

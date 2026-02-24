@@ -34,9 +34,13 @@ func newClassifyCmd() *cobra.Command {
 
 			argKeys := classify.NormalizeArgKeys(parseCSV(argKeysCSV))
 			result := registry.Classify(provider, args[0], argKeys)
+			providerDisplay := strings.TrimSpace(provider)
+			if providerDisplay == "" {
+				providerDisplay = "_default"
+			}
 
 			fmt.Printf("Tool:      %s\n", args[0])
-			fmt.Printf("Provider:  %s\n", provider)
+			fmt.Printf("Provider:  %s\n", providerDisplay)
 			fmt.Printf("Arg keys:  %s\n", strings.Join(argKeys, ","))
 			fmt.Printf("Category:  %s\n", result.Category)
 			fmt.Printf("Effect:    %s\n", result.Effect)
