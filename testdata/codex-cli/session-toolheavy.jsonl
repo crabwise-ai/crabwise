@@ -1,0 +1,5 @@
+{"timestamp":"2026-02-24T11:00:00.000Z","type":"session_meta","payload":{"id":"019c7b9d-932d-7bb3-ae9b-e8e13b639117","cwd":"/home/user/project","cli_version":"0.98.0","model_provider":"openai"}}
+{"timestamp":"2026-02-24T11:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Run tests and fix failures"}]}}
+{"timestamp":"2026-02-24T11:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","model":"gpt-5.1-codex","content":[{"type":"tool_call","name":"Bash","arguments":{"command":"go test ./..."}}],"usage":{"input_tokens":200,"output_tokens":15}}}
+{"timestamp":"2026-02-24T11:00:03.000Z","type":"response_item","payload":{"type":"message","role":"assistant","model":"gpt-5.1-codex","content":[{"type":"tool_call","name":"Edit","arguments":{"file_path":"/home/user/project/main.go","old_string":"return a+b+1","new_string":"return a+b"}}],"usage":{"input_tokens":240,"output_tokens":18}}}
+{"timestamp":"2026-02-24T11:00:04.000Z","type":"token_count","payload":{"model":"gpt-5.1-codex","usage":{"input_tokens":260,"output_tokens":30}}}

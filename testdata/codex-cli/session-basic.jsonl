@@ -1,0 +1,6 @@
+{"timestamp":"2026-02-24T10:00:00.000Z","type":"session_meta","payload":{"id":"019c7b92-c543-7ac3-aad5-e8681852a8c5","cwd":"/home/user/project","cli_version":"0.98.0","model_provider":"openai"}}
+{"timestamp":"2026-02-24T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Read the main.go file"}]}}
+{"timestamp":"2026-02-24T10:00:01.100Z","type":"turn_context","payload":{"cwd":"/home/user/project","model":"gpt-5.1-codex-mini","approval_policy":"never"}}
+{"timestamp":"2026-02-24T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","model":"gpt-5.1-codex-mini","content":[{"type":"tool_call","name":"Read","arguments":{"file_path":"/home/user/project/main.go"}}],"usage":{"input_tokens":110,"output_tokens":9}}}
+{"timestamp":"2026-02-24T10:00:03.000Z","type":"response_item","payload":{"type":"message","role":"assistant","model":"gpt-5.1-codex-mini","content":[{"type":"output_text","text":"The file has a basic main function."}],"usage":{"input_tokens":130,"output_tokens":20}}}
+{"timestamp":"2026-02-24T10:00:04.000Z","type":"token_count","payload":{"model":"gpt-5.1-codex-mini","input_tokens":130,"output_tokens":20}}

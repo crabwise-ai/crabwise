@@ -210,8 +210,8 @@ func (w *LogWatcher) tailFile(path string, events chan<- *audit.AuditEvent) {
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB max line
 
 	var (
-		curOffset int64          // byte offset of current line start
-		newOffset = offset       // running offset (end of last read line)
+		curOffset int64    // byte offset of current line start
+		newOffset = offset // running offset (end of last read line)
 		lastEvt   *audit.AuditEvent
 	)
 
@@ -220,7 +220,7 @@ func (w *LogWatcher) tailFile(path string, events chan<- *audit.AuditEvent) {
 		curOffset = newOffset
 		newOffset += int64(len(line)) + 1 // +1 for newline
 
-		parsed, err := ParseLine(line, path, curOffset)
+		parsed, err := ParseLineForSource(line, path, curOffset)
 		if err != nil {
 			continue
 		}

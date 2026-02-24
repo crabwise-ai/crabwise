@@ -28,6 +28,29 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if cfg.Commandments.File == "" {
 		t.Fatal("expected commandments.file default to be set")
 	}
+	if len(cfg.Discovery.ProcessSignatures) == 0 {
+		t.Fatal("expected discovery.process_signatures defaults")
+	}
+	hasCodex := false
+	for _, sig := range cfg.Discovery.ProcessSignatures {
+		if sig == "codex" {
+			hasCodex = true
+			break
+		}
+	}
+	if !hasCodex {
+		t.Fatalf("expected codex process signature in defaults, got %v", cfg.Discovery.ProcessSignatures)
+	}
+	hasCodexLogPath := false
+	for _, p := range cfg.Discovery.LogPaths {
+		if strings.Contains(p, ".codex") {
+			hasCodexLogPath = true
+			break
+		}
+	}
+	if !hasCodexLogPath {
+		t.Fatalf("expected codex log path in defaults, got %v", cfg.Discovery.LogPaths)
+	}
 }
 
 func TestLoadConfig_Override(t *testing.T) {

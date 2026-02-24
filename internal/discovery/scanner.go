@@ -10,11 +10,11 @@ import (
 )
 
 type AgentInfo struct {
-	ID          string    `json:"id"`
-	Type        string    `json:"type"`
-	PID         int       `json:"pid"`
-	Status      string    `json:"status"` // active, inactive
-	SessionFile string    `json:"session_file,omitempty"`
+	ID           string    `json:"id"`
+	Type         string    `json:"type"`
+	PID          int       `json:"pid"`
+	Status       string    `json:"status"` // active, inactive
+	SessionFile  string    `json:"session_file,omitempty"`
 	DiscoveredAt time.Time `json:"discovered_at"`
 }
 
@@ -73,12 +73,12 @@ func ScanLogPaths(logPaths []string) []AgentInfo {
 			}
 
 			sessionID := extractSessionID(path)
-			if sessionID == "" || seen[sessionID] {
+			agentType := detectAgentType(path)
+			agentSessionID := agentType + "/" + sessionID
+			if sessionID == "" || seen[agentSessionID] {
 				return nil
 			}
-			seen[sessionID] = true
-
-			agentType := detectAgentType(path)
+			seen[agentSessionID] = true
 			agents = append(agents, AgentInfo{
 				ID:           agentType + "/" + sessionID,
 				Type:         agentType,
@@ -107,6 +107,9 @@ func extractSessionID(path string) string {
 func detectAgentType(path string) string {
 	if strings.Contains(path, ".claude") {
 		return "claude-code"
+	}
+	if strings.Contains(path, ".codex") {
+		return "codex-cli"
 	}
 	return "unknown"
 }

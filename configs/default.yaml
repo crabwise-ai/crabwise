@@ -9,8 +9,10 @@ discovery:
   scan_interval: 10s
   process_signatures:
     - claude
+    - codex
   log_paths:
     - ~/.claude/projects/
+    - ~/.codex/sessions/
 
 adapters:
   log_watcher:
