@@ -74,10 +74,6 @@ func proxySSEStream(w http.ResponseWriter, src io.ReadCloser, transport Transpor
 				flusher.Flush()
 			}
 
-			if out.FirstTokenAt.IsZero() && hasContent(msg.data) {
-				out.FirstTokenAt = time.Now()
-			}
-
 			if !timer.Stop() {
 				select {
 				case <-timer.C:
@@ -95,6 +91,11 @@ func proxySSEStream(w http.ResponseWriter, src io.ReadCloser, transport Transpor
 			if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) {
 				continue
 			}
+
+			if out.FirstTokenAt.IsZero() {
+				out.FirstTokenAt = time.Now()
+			}
+
 			event, err := transport.ParseStreamEvent(payload)
 			if err != nil {
 				continue

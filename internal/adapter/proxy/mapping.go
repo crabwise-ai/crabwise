@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -222,7 +223,8 @@ func gjsonGet(data []byte, rule PathRule) gjson.Result {
 	return gjson.GetBytes(data, p)
 }
 
-// toGjsonPath converts $.foo[0].bar notation to gjson dot notation: foo.0.bar
+// toGjsonPath converts $.foo[0].bar notation to gjson dot notation: foo.0.bar.
+// Negative indexes like [-1] are translated to gjson's @reverse.0 idiom.
 func toGjsonPath(selector string) string {
 	s := strings.TrimSpace(selector)
 	if s == "" {
@@ -230,12 +232,28 @@ func toGjsonPath(selector string) string {
 	}
 	s = strings.TrimPrefix(s, "$.")
 	s = strings.TrimPrefix(s, "$")
+	if s == "" {
+		return ""
+	}
+
+	s = negIndexRE.ReplaceAllStringFunc(s, func(match string) string {
+		inner := match[1 : len(match)-1] // strip [ ]
+		if inner == "-1" {
+			return ".@reverse.0"
+		}
+		return "." + inner
+	})
+
 	s = strings.ReplaceAll(s, "[", ".")
 	s = strings.ReplaceAll(s, "]", "")
-	s = strings.ReplaceAll(s, "..", ".")
+	for strings.Contains(s, "..") {
+		s = strings.ReplaceAll(s, "..", ".")
+	}
 	s = strings.TrimPrefix(s, ".")
 	return s
 }
+
+var negIndexRE = regexp.MustCompile(`\[-?\d+\]`)
 
 func mustJSON(v interface{}) []byte {
 	b, _ := json.Marshal(v)

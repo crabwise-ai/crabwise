@@ -1,6 +1,9 @@
 package proxy
 
-import "regexp"
+import (
+	"fmt"
+	"regexp"
+)
 
 const maxRedactionsPerField = 50
 
@@ -44,12 +47,14 @@ func RedactPayload(raw []byte, extraPatterns []*regexp.Regexp) ([]byte, bool) {
 	return []byte(redacted), changed
 }
 
-func CompilePatterns(patterns []string) []*regexp.Regexp {
+func CompilePatterns(patterns []string) ([]*regexp.Regexp, error) {
 	var compiled []*regexp.Regexp
 	for _, p := range patterns {
-		if re, err := regexp.Compile(p); err == nil {
-			compiled = append(compiled, re)
+		re, err := regexp.Compile(p)
+		if err != nil {
+			return nil, fmt.Errorf("invalid redact pattern %q: %w", p, err)
 		}
+		compiled = append(compiled, re)
 	}
-	return compiled
+	return compiled, nil
 }
