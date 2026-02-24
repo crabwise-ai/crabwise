@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -307,6 +308,11 @@ func (c *Config) validate() error {
 			}
 			if len(p.RoutePatterns) == 0 && name != c.Adapters.Proxy.DefaultProvider {
 				return fmt.Errorf("adapters.proxy.providers.%s.route_patterns required unless default provider", name)
+			}
+		}
+		for i, pat := range c.Adapters.Proxy.RedactPatterns {
+			if _, err := regexp.Compile(pat); err != nil {
+				return fmt.Errorf("adapters.proxy.redact_patterns[%d] invalid regex %q: %v", i, pat, err)
 			}
 		}
 	}

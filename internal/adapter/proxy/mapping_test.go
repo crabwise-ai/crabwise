@@ -12,7 +12,7 @@ func TestToGjsonPath(t *testing.T) {
 		{"$.choices[0].finish_reason", "choices.0.finish_reason"},
 		{"model", "model"},
 		{"$.error.type", "error.type"},
-		{"choices[-1].message", "choices.-1.message"},
+		{"choices[-1].message", "choices.@reverse.0.message"},
 		{"$", ""},
 		{"", ""},
 		{"usage.prompt_tokens", "usage.prompt_tokens"},

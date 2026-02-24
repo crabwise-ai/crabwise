@@ -74,6 +74,11 @@ func New(cfg Config, evaluator Evaluator, classifier classify.Classifier, events
 		return nil, err
 	}
 
+	extraREs, err := CompilePatterns(cfg.RedactPatterns)
+	if err != nil {
+		return nil, fmt.Errorf("proxy config: %w", err)
+	}
+
 	return &Proxy{
 		cfg:            cfg,
 		evaluator:      evaluator,
@@ -81,7 +86,7 @@ func New(cfg Config, evaluator Evaluator, classifier classify.Classifier, events
 		events:         events,
 		router:         router,
 		providers:      providers,
-		extraRedactREs: CompilePatterns(cfg.RedactPatterns),
+		extraRedactREs: extraREs,
 	}, nil
 }
 
@@ -304,19 +309,23 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	defer upstreamResp.Body.Close()
 
-	copyResponseHeaders(w.Header(), upstreamResp.Header)
-	w.Header().Set("X-Request-ID", eventID)
-	if originalReqID != "" {
-		w.Header().Set("X-Crabwise-Original-Request-ID", originalReqID)
-	}
-	w.WriteHeader(upstreamResp.StatusCode)
-
 	normResp := NormalizedResponse{UpstreamStatus: upstreamResp.StatusCode, MappingDegraded: mappingDegraded}
 	contentType := strings.ToLower(upstreamResp.Header.Get("Content-Type"))
+
+	sendUpstreamHeaders := func(status int) {
+		copyResponseHeaders(w.Header(), upstreamResp.Header)
+		w.Header().Set("X-Request-ID", eventID)
+		if originalReqID != "" {
+			w.Header().Set("X-Crabwise-Original-Request-ID", originalReqID)
+		}
+		w.WriteHeader(status)
+	}
 
 	var firstTokenAt time.Time
 
 	if normalizedReq.Stream || strings.Contains(contentType, "text/event-stream") {
+		sendUpstreamHeaders(upstreamResp.StatusCode)
+
 		streamTel, streamErr := proxySSEStream(w, upstreamResp.Body, providerRuntime.Transport, p.cfg.StreamIdleTimeout)
 		if streamErr != nil {
 			p.metrics.UpstreamErrors.Add(1)
@@ -338,15 +347,24 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 			normResp.ErrorMessage = readErr.Error()
 		}
 		if len(respBody) > 0 {
-			_, _ = w.Write(respBody)
 			responseMapped, respMapErr := NormalizeResponse(providerRuntime.Mapping, respBody, upstreamResp.StatusCode)
 			if respMapErr != nil {
 				normResp.MappingDegraded = true
 				p.metrics.MappingDegraded.Add(1)
+				if p.cfg.MappingStrictMode {
+					writeProxyError(w, http.StatusBadGateway, "mapping_error", "response mapping failed: "+respMapErr.Error(), eventID)
+				} else {
+					sendUpstreamHeaders(upstreamResp.StatusCode)
+					_, _ = w.Write(respBody)
+				}
 			} else {
+				sendUpstreamHeaders(upstreamResp.StatusCode)
+				_, _ = w.Write(respBody)
 				normResp = responseMapped
 				normResp.MappingDegraded = mappingDegraded
 			}
+		} else {
+			sendUpstreamHeaders(upstreamResp.StatusCode)
 		}
 	}
 
