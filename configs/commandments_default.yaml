@@ -6,7 +6,8 @@ commandments:
     priority: 100
     enabled: true
     match:
-      action_type: command_execution
+      tool_category: shell
+      tool_effect: execute
       arguments:
         type: regex
         pattern: "rm\\s+-rf|mkfs|dd\\s+if="
@@ -19,7 +20,12 @@ commandments:
     priority: 90
     enabled: true
     match:
-      action_type: file_access
+      tool_category:
+        type: list
+        op: in
+        values:
+          - file.read
+          - file.search
       arguments:
         type: glob
         patterns:
@@ -52,7 +58,8 @@ commandments:
     priority: 70
     enabled: true
     match:
-      action_type: command_execution
+      tool_category: shell
+      tool_effect: execute
       arguments:
         type: regex
         pattern: "git push.*(?:main|master)"

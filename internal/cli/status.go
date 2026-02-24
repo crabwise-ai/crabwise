@@ -44,6 +44,7 @@ func newStatusCmd() *cobra.Command {
 			fmt.Printf("Agents:       %v\n", status["agents"])
 			fmt.Printf("Queue depth:  %v\n", status["queue_depth"])
 			fmt.Printf("Dropped:      %v\n", status["queue_dropped"])
+			fmt.Printf("Unclassified: %v\n", status["unclassified_tool_count"])
 
 			return nil
 		},

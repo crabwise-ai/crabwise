@@ -36,3 +36,6 @@ audit:
 
 commandments:
   file: ~/.config/crabwise/commandments.yaml
+
+tool_registry:
+  file: ~/.config/crabwise/tool_registry.yaml

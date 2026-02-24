@@ -13,8 +13,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/crabwise-ai/crabwise/configs"
 	"github.com/crabwise-ai/crabwise/internal/adapter/logwatcher"
 	"github.com/crabwise-ai/crabwise/internal/audit"
+	"github.com/crabwise-ai/crabwise/internal/classify"
 	"github.com/crabwise-ai/crabwise/internal/discovery"
 	"github.com/crabwise-ai/crabwise/internal/ipc"
 	"github.com/crabwise-ai/crabwise/internal/queue"
@@ -30,6 +32,7 @@ type Daemon struct {
 	registry     *discovery.Registry
 	watcher      *logwatcher.LogWatcher
 	commandments CommandmentsService
+	classifier   classify.Classifier
 	startTime    time.Time
 
 	hostname string
@@ -90,6 +93,21 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.logger.SetEvaluator(d.commandments)
 	d.logger.SetRedactor(d.commandments)
 
+	registry, registryInitErr := d.loadToolRegistryCandidate()
+	if registryInitErr != nil {
+		log.Printf("daemon: tool registry init error: %v", registryInitErr)
+		fallbackRegistry, fallbackErr := classify.LoadRegistry("", d.toolRegistryFallbackYAML())
+		if fallbackErr != nil {
+			log.Printf("daemon: embedded tool registry fallback error: %v", fallbackErr)
+			d.classifier = classify.NewFallbackRegistry()
+		} else {
+			d.classifier = fallbackRegistry
+		}
+	} else {
+		d.classifier = registry
+	}
+	logwatcher.SetClassifier(d.classifier)
+
 	d.logger.Start(ctx)
 	defer d.logger.Stop()
 
@@ -147,8 +165,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 		case sig := <-sigCh:
 			switch sig {
 			case syscall.SIGHUP:
-				if _, err := d.reloadCommandments(); err != nil {
-					log.Printf("daemon: commandments reload error: %v", err)
+				if _, err := d.reloadRuntime(); err != nil {
+					log.Printf("daemon: runtime reload error: %v", err)
 				}
 			default:
 				log.Printf("daemon: received %s, shutting down", sig)
@@ -204,12 +222,17 @@ func (d *Daemon) discoveryLoop(ctx context.Context) {
 func (d *Daemon) registerIPC() {
 	d.ipcServer.Handle("status", func(params json.RawMessage) (interface{}, error) {
 		stats := d.queue.Stats()
+		var unclassified uint64
+		if d.classifier != nil {
+			unclassified = d.classifier.UnclassifiedCount()
+		}
 		return map[string]interface{}{
-			"uptime":        time.Since(d.startTime).Truncate(time.Second).String(),
-			"agents":        d.registry.Count(),
-			"queue_depth":   stats.Depth,
-			"queue_dropped": stats.Dropped,
-			"pid":           os.Getpid(),
+			"uptime":                  time.Since(d.startTime).Truncate(time.Second).String(),
+			"agents":                  d.registry.Count(),
+			"queue_depth":             stats.Depth,
+			"queue_dropped":           stats.Dropped,
+			"pid":                     os.Getpid(),
+			"unclassified_tool_count": unclassified,
 		}, nil
 	})
 
@@ -287,7 +310,7 @@ func (d *Daemon) registerIPC() {
 	})
 
 	d.ipcServer.Handle("commandments.reload", func(params json.RawMessage) (interface{}, error) {
-		rulesLoaded, err := d.reloadCommandments()
+		rulesLoaded, err := d.reloadRuntime()
 		if err != nil {
 			return nil, err
 		}
@@ -359,22 +382,51 @@ func (d *Daemon) removePID() {
 	os.Remove(d.cfg.Daemon.PIDFile)
 }
 
-func (d *Daemon) reloadCommandments() (int, error) {
-	if d.commandments == nil {
-		d.commandments = &noopCommandmentsService{}
+func (d *Daemon) reloadRuntime() (int, error) {
+	newCommandments, cmdErr := NewCommandmentsService(d.cfg.Commandments.File, DefaultCommandmentsYAML)
+	if cmdErr != nil {
+		d.emitSystemEvent("commandments_reload_failed", audit.OutcomeFailure, map[string]interface{}{"error": cmdErr.Error()})
 	}
 
-	rulesLoaded, err := d.commandments.Reload()
-	if err != nil {
-		d.emitSystemEvent("commandments_reload_failed", audit.OutcomeFailure, map[string]interface{}{"error": err.Error()})
-		return 0, err
+	newRegistry, regErr := d.loadToolRegistryCandidate()
+	if regErr != nil {
+		d.emitSystemEvent("tool_registry_reload_failed", audit.OutcomeFailure, map[string]interface{}{"error": regErr.Error()})
 	}
 
-	if rulesLoaded == 0 {
-		rulesLoaded = len(d.commandments.List())
+	if cmdErr != nil || regErr != nil {
+		if cmdErr != nil {
+			return 0, cmdErr
+		}
+		return 0, regErr
 	}
+
+	d.commandments = newCommandments
+	d.logger.SetEvaluator(d.commandments)
+	d.logger.SetRedactor(d.commandments)
+
+	d.classifier = newRegistry
+	logwatcher.SetClassifier(d.classifier)
+
+	rulesLoaded := len(d.commandments.List())
 	d.emitSystemEvent("commandments_reload_ok", audit.OutcomeSuccess, map[string]interface{}{"rules_loaded": rulesLoaded})
+	d.emitSystemEvent("tool_registry_reload_ok", audit.OutcomeSuccess, map[string]interface{}{"version": newRegistry.Version()})
+
 	return rulesLoaded, nil
+}
+
+func (d *Daemon) loadToolRegistryCandidate() (*classify.Registry, error) {
+	registry, err := classify.LoadRegistry(d.cfg.ToolRegistry.File, d.toolRegistryFallbackYAML())
+	if err != nil {
+		return nil, err
+	}
+	return registry, nil
+}
+
+func (d *Daemon) toolRegistryFallbackYAML() []byte {
+	if len(DefaultToolRegistryYAML) > 0 {
+		return DefaultToolRegistryYAML
+	}
+	return configs.DefaultToolRegistryYAML
 }
 
 func (d *Daemon) emitSystemEvent(action string, outcome audit.Outcome, payload interface{}) {

@@ -9,6 +9,7 @@ import (
 func init() {
 	daemon.DefaultConfigYAML = configs.DefaultYAML
 	daemon.DefaultCommandmentsYAML = configs.DefaultCommandmentsYAML
+	daemon.DefaultToolRegistryYAML = configs.DefaultToolRegistryYAML
 }
 
 func main() {

@@ -125,3 +125,29 @@ func TestComputeHash_CommandmentsMetadataDeterminism(t *testing.T) {
 		t.Fatal("changing commandments metadata order should change hash")
 	}
 }
+
+func TestComputeHash_ToolTaxonomyFieldsAffectHash(t *testing.T) {
+	ts := time.Date(2026, 2, 22, 14, 0, 0, 0, time.UTC)
+	base := &AuditEvent{
+		ID:                   "evt_001",
+		Timestamp:            ts,
+		AgentID:              "codex-cli",
+		ActionType:           ActionToolCall,
+		Action:               "custom",
+		Outcome:              OutcomeSuccess,
+		ToolCategory:         "shell",
+		ToolEffect:           "execute",
+		ToolName:             "Bash",
+		TaxonomyVersion:      "v1",
+		ClassificationSource: "exact",
+	}
+
+	h1 := ComputeHash(base, "genesis")
+	changed := *base
+	changed.ToolCategory = "file.read"
+	h2 := ComputeHash(&changed, "genesis")
+
+	if h1 == h2 {
+		t.Fatal("expected taxonomy field change to modify hash")
+	}
+}

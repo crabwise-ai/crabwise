@@ -7,3 +7,6 @@ var DefaultYAML []byte
 
 //go:embed commandments_default.yaml
 var DefaultCommandmentsYAML []byte
+
+//go:embed tool_registry.yaml
+var DefaultToolRegistryYAML []byte
