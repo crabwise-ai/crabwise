@@ -1,8 +1,8 @@
 version: "1"
 commandments:
   - name: no-destructive-commands
-    description: Warn on destructive shell commands
-    enforcement: warn
+    description: Block destructive shell commands
+    enforcement: block
     priority: 100
     enabled: true
     match:
