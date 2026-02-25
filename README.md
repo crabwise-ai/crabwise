@@ -121,6 +121,22 @@ commandments:
   file: ~/.config/crabwise/commandments.yaml
 ```
 
+## Manual cleanup
+
+To reset or remove Crabwise data and config (e.g. for a clean reinstall):
+
+1. **Delete the database and runtime data** (default location):
+   ```bash
+   rm -rf ~/.local/share/crabwise/
+   ```
+   This removes the SQLite database (`crabwise.db`), socket, PID file, and any raw payload files. The daemon will recreate the directory and a new empty database on next `crabwise start`.
+
+2. **Optionally delete config and commandments** (to restore defaults):
+   ```bash
+   rm -rf ~/.config/crabwise/
+   ```
+   Then run `crabwise init` to write fresh default config, commandments, and tool registry files. If you use a custom config path (e.g. `--config`), remove that path instead.
+
 ## License
 
 See [LICENSE](LICENSE).
