@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -67,6 +68,8 @@ type ProxyConfig struct {
 	MaxRequestBody      int64                          `yaml:"max_request_body"`
 	RedactEgressDefault bool                           `yaml:"redact_egress_default"`
 	RedactPatterns      []string                       `yaml:"redact_patterns"`
+	CACert              string                         `yaml:"ca_cert"`
+	CAKey               string                         `yaml:"ca_key"`
 	MappingsDir         string                         `yaml:"mappings_dir"`
 	MappingStrictMode   bool                           `yaml:"mapping_strict_mode"`
 	Providers           map[string]ProxyProviderConfig `yaml:"providers"`
@@ -169,6 +172,8 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.Adapters.Proxy.UpstreamTimeout = Duration(30 * time.Second)
 		cfg.Adapters.Proxy.StreamIdleTimeout = Duration(120 * time.Second)
 		cfg.Adapters.Proxy.MaxRequestBody = 10 * 1024 * 1024
+		cfg.Adapters.Proxy.CACert = "~/.local/share/crabwise/ca.crt"
+		cfg.Adapters.Proxy.CAKey = "~/.local/share/crabwise/ca.key"
 		cfg.Adapters.Proxy.MappingsDir = "~/.config/crabwise/proxy_mappings"
 		cfg.Adapters.Proxy.Providers = map[string]ProxyProviderConfig{
 			"openai": {
@@ -236,6 +241,8 @@ func (c *Config) expandPaths() {
 	c.Daemon.PIDFile = expand(c.Daemon.PIDFile)
 	c.Commandments.File = expand(c.Commandments.File)
 	c.ToolRegistry.File = expand(c.ToolRegistry.File)
+	c.Adapters.Proxy.CACert = expand(c.Adapters.Proxy.CACert)
+	c.Adapters.Proxy.CAKey = expand(c.Adapters.Proxy.CAKey)
 	c.Adapters.Proxy.MappingsDir = expand(c.Adapters.Proxy.MappingsDir)
 
 	for i, p := range c.Discovery.LogPaths {
@@ -308,6 +315,17 @@ func (c *Config) validate() error {
 			}
 			if len(p.RoutePatterns) == 0 && name != c.Adapters.Proxy.DefaultProvider {
 				return fmt.Errorf("adapters.proxy.providers.%s.route_patterns required unless default provider", name)
+			}
+		}
+		domainOwner := make(map[string]string)
+		for name, p := range c.Adapters.Proxy.Providers {
+			u, err := url.Parse(p.UpstreamBaseURL)
+			if err == nil && u.Hostname() != "" {
+				host := u.Hostname()
+				if prev, dup := domainOwner[host]; dup {
+					return fmt.Errorf("providers %q and %q share upstream domain %q; each domain must map to one provider", prev, name, host)
+				}
+				domainOwner[host] = name
 			}
 		}
 		for i, pat := range c.Adapters.Proxy.RedactPatterns {

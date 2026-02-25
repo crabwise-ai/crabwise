@@ -43,6 +43,14 @@ crabwise init
 # Start the daemon (foreground)
 crabwise start
 
+# Launch AI agents through the proxy:
+crabwise wrap -- codex      # sets HTTPS_PROXY automatically
+crabwise wrap -- claude     # works with any AI agent
+
+# Or set env vars manually:
+eval $(crabwise env)
+codex
+
 # In another terminal:
 crabwise status          # check daemon is running
 crabwise agents          # list discovered AI agents
@@ -57,7 +65,7 @@ crabwise stop            # graceful shutdown
 
 ### `crabwise start`
 
-Runs the daemon in the foreground. Discovers Claude Code sessions under `~/.claude/projects/` and Codex CLI sessions under `~/.codex/sessions/`, parses JSONL logs, and writes events to SQLite with hash chaining.
+Runs the daemon in the foreground. Discovers Claude Code sessions under `~/.claude/projects/` and Codex CLI sessions under `~/.codex/sessions/`, parses JSONL logs, and writes events to SQLite with hash chaining. When CA certificates are configured (via `crabwise init`), the daemon also runs a forward HTTPS proxy that intercepts AI provider traffic for policy enforcement.
 
 Background it yourself with systemd, `&`, or a process manager.
 
@@ -109,6 +117,25 @@ crabwise commandments reload
 ```
 
 Subcommands: `list`, `test <event-json>`, `reload`
+
+### `crabwise wrap`
+
+Launches a command with proxy environment variables configured. All HTTPS traffic from the wrapped process routes through the crabwise proxy for monitoring and enforcement.
+
+```bash
+crabwise wrap -- codex
+crabwise wrap -- claude
+crabwise wrap -- python my_agent.py
+```
+
+### `crabwise env`
+
+Prints proxy environment variables for shell evaluation.
+
+```bash
+eval $(crabwise env)              # bash/zsh
+crabwise env --shell fish | source  # fish
+```
 
 ## Config
 

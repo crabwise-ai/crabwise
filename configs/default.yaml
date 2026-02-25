@@ -21,11 +21,15 @@ adapters:
   proxy:
     enabled: true
     listen: 127.0.0.1:9119
+    # Used as fallback when request path doesn't match any provider's route_patterns.
+    # In forward proxy mode, the provider is primarily resolved by CONNECT domain.
     default_provider: openai
     upstream_timeout: 30s
     stream_idle_timeout: 120s
     max_request_body: 10485760
     redact_egress_default: false
+    ca_cert: ~/.local/share/crabwise/ca.crt
+    ca_key: ~/.local/share/crabwise/ca.key
     mappings_dir: ~/.config/crabwise/proxy_mappings
     mapping_strict_mode: false
     providers:
