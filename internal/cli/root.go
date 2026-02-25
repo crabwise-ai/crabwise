@@ -16,11 +16,9 @@ const reset = "\033[0m"
 func banner() string {
 	return "" +
 		orange + "▄█▀      ▀█▄" + reset + "  Crabwise AI v" + Version + "\n" +
-		orange + "█▄█ ▄  ▄ █▄█" + reset + "  Local-first daemon + CLI that monitors, governs, and audits AI agent activity\n" +
-		orange + "█▀ ▄█▄▄█▄ ▀█" + reset + "  https://github.com/crabwise-ai/crabwise\n" +
-		orange + "▀██████████▀" + reset + "\n" +
-		orange + " ▄████████▄" + reset + "\n" +
-		orange + "█  █    █  █" + reset + "\n"
+		orange + "█▄█ ▄  ▄ █▄█" + reset + "  Local-first daemon + CLI that monitors,\n" +
+		orange + "█▀ ▄█▄▄█▄ ▀█" + reset + "  governs, and audits AI agent activity\n" +
+		orange + "▀██████████▀" + reset + "  https://github.com/crabwise-ai/crabwise\n"
 }
 
 func NewRootCmd() *cobra.Command {
