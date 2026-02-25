@@ -20,6 +20,8 @@ type Config struct {
 	StreamIdleTimeout   time.Duration
 	MaxRequestBody      int64
 	RedactEgressDefault bool
+	CACert              string
+	CAKey               string
 	MappingsDir         string
 	MappingStrictMode   bool
 	Providers           map[string]ProviderConfig

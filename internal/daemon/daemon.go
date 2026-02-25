@@ -527,6 +527,8 @@ func (d *Daemon) proxyConfig() proxy.Config {
 		MaxRequestBody:      d.cfg.Adapters.Proxy.MaxRequestBody,
 		RedactEgressDefault: d.cfg.Adapters.Proxy.RedactEgressDefault,
 		RedactPatterns:      d.cfg.Adapters.Proxy.RedactPatterns,
+		CACert:              d.cfg.Adapters.Proxy.CACert,
+		CAKey:               d.cfg.Adapters.Proxy.CAKey,
 		MappingsDir:         d.cfg.Adapters.Proxy.MappingsDir,
 		MappingStrictMode:   d.cfg.Adapters.Proxy.MappingStrictMode,
 		Providers:           providers,
