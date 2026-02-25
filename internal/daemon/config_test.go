@@ -34,6 +34,12 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if len(cfg.Discovery.ProcessSignatures) == 0 {
 		t.Fatal("expected discovery.process_signatures defaults")
 	}
+	if cfg.Adapters.Proxy.Listen == "" {
+		t.Fatal("expected proxy listen default")
+	}
+	if cfg.Adapters.Proxy.MaxRequestBody <= 0 {
+		t.Fatal("expected proxy max_request_body default")
+	}
 	hasCodex := false
 	for _, sig := range cfg.Discovery.ProcessSignatures {
 		if sig == "codex" {
@@ -53,6 +59,49 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	}
 	if !hasCodexLogPath {
 		t.Fatalf("expected codex log path in defaults, got %v", cfg.Discovery.LogPaths)
+	}
+}
+
+func TestLoadConfig_ProxyEnabledRequiresDefaultProvider(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	content := `
+adapters:
+  proxy:
+    enabled: true
+    default_provider: ""
+`
+	if err := os.WriteFile(cfgPath, []byte(content), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := LoadConfig(cfgPath)
+	if err == nil {
+		t.Fatal("expected error for missing default provider")
+	}
+}
+
+func TestLoadConfig_ProxyConfiguredAuthRequiresKey(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	content := `
+adapters:
+  proxy:
+    enabled: true
+    default_provider: openai
+    providers:
+      openai:
+        upstream_base_url: https://api.openai.com
+        auth_mode: configured
+        route_patterns: ["/v1/responses"]
+`
+	if err := os.WriteFile(cfgPath, []byte(content), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := LoadConfig(cfgPath)
+	if err == nil {
+		t.Fatal("expected error for configured auth without auth_key")
 	}
 }
 

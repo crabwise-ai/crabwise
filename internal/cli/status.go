@@ -45,6 +45,12 @@ func newStatusCmd() *cobra.Command {
 			fmt.Printf("Queue depth:  %v\n", status["queue_depth"])
 			fmt.Printf("Dropped:      %v\n", status["queue_dropped"])
 			fmt.Printf("Unclassified: %v\n", status["unclassified_tool_count"])
+			if _, ok := status["proxy_requests_total"]; ok {
+				fmt.Printf("Proxy reqs:   %v\n", status["proxy_requests_total"])
+				fmt.Printf("Proxy blocked:%v\n", status["proxy_blocked_total"])
+				fmt.Printf("Proxy errors: %v\n", status["proxy_upstream_errors"])
+				fmt.Printf("Map degraded: %v\n", status["mapping_degraded_count"])
+			}
 
 			return nil
 		},

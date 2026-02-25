@@ -10,3 +10,6 @@ var DefaultCommandmentsYAML []byte
 
 //go:embed tool_registry.yaml
 var DefaultToolRegistryYAML []byte
+
+//go:embed proxy_mappings/openai.yaml
+var DefaultOpenAIProxyMappingYAML []byte

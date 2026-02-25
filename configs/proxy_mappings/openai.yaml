@@ -1,0 +1,34 @@
+version: "1"
+provider: openai
+
+request:
+  model: { path: "$.model" }
+  stream: { path: "$.stream", default: false }
+  tools:
+    path: "$.tools"
+    each:
+      name: { path: "$.function.name" }
+      raw_args: { path: "$.function.parameters", serialize: json }
+  input_summary: { path: "$.messages[-1].content", truncate: 200 }
+
+response:
+  model: { path: "$.model" }
+  finish_reason: { path: "$.choices[0].finish_reason" }
+  usage:
+    input_tokens: { path: "$.usage.prompt_tokens" }
+    output_tokens: { path: "$.usage.completion_tokens" }
+  error:
+    error_type:
+      path: "$.error.type"
+      map:
+        rate_limit_exceeded: rate_limit
+        server_error: server_error
+        invalid_request_error: invalid_request
+        authentication_error: auth
+    error_message: { path: "$.error.message" }
+
+stream:
+  usage:
+    input_tokens: { path: "$.usage.prompt_tokens" }
+    output_tokens: { path: "$.usage.completion_tokens" }
+  finish_reason: { path: "$.choices[0].finish_reason" }

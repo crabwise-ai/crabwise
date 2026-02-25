@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -30,6 +31,7 @@ type Config struct {
 	Audit        AuditConfig        `yaml:"audit"`
 	Commandments CommandmentsConfig `yaml:"commandments"`
 	ToolRegistry ToolRegistryConfig `yaml:"tool_registry"`
+	Cost         CostConfig         `yaml:"cost"`
 }
 
 type DaemonConfig struct {
@@ -48,11 +50,35 @@ type DiscoveryConfig struct {
 
 type AdaptersConfig struct {
 	LogWatcher LogWatcherConfig `yaml:"log_watcher"`
+	Proxy      ProxyConfig      `yaml:"proxy"`
 }
 
 type LogWatcherConfig struct {
 	Enabled              bool     `yaml:"enabled"`
 	PollFallbackInterval Duration `yaml:"poll_fallback_interval"`
+}
+
+type ProxyConfig struct {
+	Enabled             bool                           `yaml:"enabled"`
+	Listen              string                         `yaml:"listen"`
+	DefaultProvider     string                         `yaml:"default_provider"`
+	UpstreamTimeout     Duration                       `yaml:"upstream_timeout"`
+	StreamIdleTimeout   Duration                       `yaml:"stream_idle_timeout"`
+	MaxRequestBody      int64                          `yaml:"max_request_body"`
+	RedactEgressDefault bool                           `yaml:"redact_egress_default"`
+	RedactPatterns      []string                       `yaml:"redact_patterns"`
+	MappingsDir         string                         `yaml:"mappings_dir"`
+	MappingStrictMode   bool                           `yaml:"mapping_strict_mode"`
+	Providers           map[string]ProxyProviderConfig `yaml:"providers"`
+}
+
+type ProxyProviderConfig struct {
+	UpstreamBaseURL string   `yaml:"upstream_base_url"`
+	AuthMode        string   `yaml:"auth_mode"` // passthrough|configured
+	AuthKey         string   `yaml:"auth_key"`
+	RoutePatterns   []string `yaml:"route_patterns"`
+	MaxIdleConns    int      `yaml:"max_idle_conns"`
+	IdleConnTimeout Duration `yaml:"idle_conn_timeout"`
 }
 
 type QueueConfig struct {
@@ -78,6 +104,15 @@ type CommandmentsConfig struct {
 
 type ToolRegistryConfig struct {
 	File string `yaml:"file"`
+}
+
+type CostConfig struct {
+	Pricing map[string]ModelPricing `yaml:"pricing"`
+}
+
+type ModelPricing struct {
+	Input  float64 `yaml:"input"`
+	Output float64 `yaml:"output"`
 }
 
 // Duration wraps time.Duration for YAML unmarshaling.
@@ -128,6 +163,22 @@ func LoadConfig(path string) (*Config, error) {
 		}
 		cfg.Adapters.LogWatcher.Enabled = true
 		cfg.Adapters.LogWatcher.PollFallbackInterval = Duration(30 * time.Second)
+		cfg.Adapters.Proxy.Enabled = false
+		cfg.Adapters.Proxy.Listen = "127.0.0.1:9119"
+		cfg.Adapters.Proxy.DefaultProvider = "openai"
+		cfg.Adapters.Proxy.UpstreamTimeout = Duration(30 * time.Second)
+		cfg.Adapters.Proxy.StreamIdleTimeout = Duration(120 * time.Second)
+		cfg.Adapters.Proxy.MaxRequestBody = 10 * 1024 * 1024
+		cfg.Adapters.Proxy.MappingsDir = "~/.config/crabwise/proxy_mappings"
+		cfg.Adapters.Proxy.Providers = map[string]ProxyProviderConfig{
+			"openai": {
+				UpstreamBaseURL: "https://api.openai.com",
+				AuthMode:        "passthrough",
+				RoutePatterns:   []string{"/v1/chat/completions", "/v1/responses", "/v1/embeddings"},
+				MaxIdleConns:    10,
+				IdleConnTimeout: Duration(90 * time.Second),
+			},
+		}
 		cfg.Queue.Capacity = 10000
 		cfg.Queue.BatchSize = 100
 		cfg.Queue.FlushInterval = Duration(time.Second)
@@ -137,6 +188,10 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.Audit.HashAlgorithm = "sha256"
 		cfg.Commandments.File = "~/.config/crabwise/commandments.yaml"
 		cfg.ToolRegistry.File = "~/.config/crabwise/tool_registry.yaml"
+		cfg.Cost.Pricing = map[string]ModelPricing{
+			"gpt-4o":      {Input: 2.50, Output: 10.00},
+			"gpt-4o-mini": {Input: 0.15, Output: 0.60},
+		}
 	}
 
 	// Override with user config if present
@@ -181,6 +236,7 @@ func (c *Config) expandPaths() {
 	c.Daemon.PIDFile = expand(c.Daemon.PIDFile)
 	c.Commandments.File = expand(c.Commandments.File)
 	c.ToolRegistry.File = expand(c.ToolRegistry.File)
+	c.Adapters.Proxy.MappingsDir = expand(c.Adapters.Proxy.MappingsDir)
 
 	for i, p := range c.Discovery.LogPaths {
 		c.Discovery.LogPaths[i] = expand(p)
@@ -200,6 +256,9 @@ func (c *Config) validate() error {
 	if c.ToolRegistry.File == "" {
 		c.ToolRegistry.File = defaultToolRegistryPath()
 	}
+	if c.Adapters.Proxy.MappingsDir == "" {
+		c.Adapters.Proxy.MappingsDir = defaultMappingsDirPath()
+	}
 	switch c.Daemon.LogLevel {
 	case "debug", "info", "warn", "error", "":
 	default:
@@ -212,6 +271,55 @@ func (c *Config) validate() error {
 	case "block_with_timeout", "drop_oldest", "":
 	default:
 		return fmt.Errorf("invalid queue.overflow %q", c.Queue.Overflow)
+	}
+	if c.Adapters.Proxy.Enabled {
+		if strings.TrimSpace(c.Adapters.Proxy.Listen) == "" {
+			return fmt.Errorf("adapters.proxy.listen required when proxy enabled")
+		}
+		if c.Adapters.Proxy.UpstreamTimeout.Duration() <= 0 {
+			return fmt.Errorf("adapters.proxy.upstream_timeout must be > 0")
+		}
+		if c.Adapters.Proxy.StreamIdleTimeout.Duration() <= 0 {
+			return fmt.Errorf("adapters.proxy.stream_idle_timeout must be > 0")
+		}
+		if c.Adapters.Proxy.MaxRequestBody <= 0 {
+			return fmt.Errorf("adapters.proxy.max_request_body must be > 0")
+		}
+		if c.Adapters.Proxy.DefaultProvider == "" {
+			return fmt.Errorf("adapters.proxy.default_provider required when proxy enabled")
+		}
+		if len(c.Adapters.Proxy.Providers) == 0 {
+			return fmt.Errorf("adapters.proxy.providers required when proxy enabled")
+		}
+		if _, ok := c.Adapters.Proxy.Providers[c.Adapters.Proxy.DefaultProvider]; !ok {
+			return fmt.Errorf("adapters.proxy.default_provider %q not found in providers", c.Adapters.Proxy.DefaultProvider)
+		}
+		for name, p := range c.Adapters.Proxy.Providers {
+			if strings.TrimSpace(p.UpstreamBaseURL) == "" {
+				return fmt.Errorf("adapters.proxy.providers.%s.upstream_base_url required", name)
+			}
+			switch p.AuthMode {
+			case "", "passthrough", "configured":
+			default:
+				return fmt.Errorf("adapters.proxy.providers.%s.auth_mode invalid %q", name, p.AuthMode)
+			}
+			if p.AuthMode == "configured" && strings.TrimSpace(p.AuthKey) == "" {
+				return fmt.Errorf("adapters.proxy.providers.%s.auth_key required when auth_mode=configured", name)
+			}
+			if len(p.RoutePatterns) == 0 && name != c.Adapters.Proxy.DefaultProvider {
+				return fmt.Errorf("adapters.proxy.providers.%s.route_patterns required unless default provider", name)
+			}
+		}
+		for i, pat := range c.Adapters.Proxy.RedactPatterns {
+			if _, err := regexp.Compile(pat); err != nil {
+				return fmt.Errorf("adapters.proxy.redact_patterns[%d] invalid regex %q: %w", i, pat, err)
+			}
+		}
+	}
+	for model, price := range c.Cost.Pricing {
+		if price.Input < 0 || price.Output < 0 {
+			return fmt.Errorf("cost.pricing.%s values must be non-negative", model)
+		}
 	}
 	return nil
 }
@@ -230,4 +338,12 @@ func defaultToolRegistryPath() string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "crabwise", "tool_registry.yaml")
+}
+
+func defaultMappingsDirPath() string {
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, "crabwise", "proxy_mappings")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "crabwise", "proxy_mappings")
 }

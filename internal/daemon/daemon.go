@@ -16,6 +16,7 @@ import (
 
 	"github.com/crabwise-ai/crabwise/configs"
 	"github.com/crabwise-ai/crabwise/internal/adapter/logwatcher"
+	"github.com/crabwise-ai/crabwise/internal/adapter/proxy"
 	"github.com/crabwise-ai/crabwise/internal/audit"
 	"github.com/crabwise-ai/crabwise/internal/classify"
 	"github.com/crabwise-ai/crabwise/internal/discovery"
@@ -32,6 +33,7 @@ type Daemon struct {
 	ipcServer    *ipc.Server
 	registry     *discovery.Registry
 	watcher      *logwatcher.LogWatcher
+	proxy        *proxy.Proxy
 	commandments CommandmentsService
 	classifier   classify.Classifier
 	startTime    time.Time
@@ -148,6 +150,34 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}()
 	}
 
+	if d.cfg.Adapters.Proxy.Enabled {
+		px, err := proxy.New(d.proxyConfig(), d.commandments, d.classifier, d.eventCh)
+		if err != nil {
+			log.Printf("daemon: proxy init error: %v", err)
+		} else {
+			d.proxy = px
+			if d.cfg.Audit.RawPayloadEnabled {
+				rpm := audit.NewRawPayloadManager(
+					d.cfg.Daemon.RawPayloadDir,
+					d.cfg.Audit.RawPayloadMaxSize,
+					d.cfg.Audit.RawPayloadQuota,
+					d.cfg.Audit.RetentionDays,
+				)
+				d.proxy.SetRawPayloadWriter(rpm)
+			}
+			go func() {
+				if err := d.proxy.Start(ctx); err != nil {
+					log.Printf("daemon: proxy server error: %v", err)
+				}
+			}()
+			defer func() {
+				if err := d.proxy.Stop(); err != nil {
+					log.Printf("daemon: proxy stop: %v", err)
+				}
+			}()
+		}
+	}
+
 	// Event forwarder: eventCh → queue
 	go d.forwardEvents(ctx)
 
@@ -227,14 +257,20 @@ func (d *Daemon) registerIPC() {
 		if d.classifier != nil {
 			unclassified = d.classifier.UnclassifiedCount()
 		}
-		return map[string]interface{}{
+		resp := map[string]interface{}{
 			"uptime":                  time.Since(d.startTime).Truncate(time.Second).String(),
 			"agents":                  d.registry.Count(),
 			"queue_depth":             stats.Depth,
 			"queue_dropped":           stats.Dropped,
 			"pid":                     os.Getpid(),
 			"unclassified_tool_count": unclassified,
-		}, nil
+		}
+		if d.proxy != nil {
+			for k, v := range d.proxy.Snapshot() {
+				resp[k] = v
+			}
+		}
+		return resp, nil
 	})
 
 	d.ipcServer.Handle("agents.list", func(params json.RawMessage) (interface{}, error) {
@@ -338,6 +374,30 @@ func (d *Daemon) registerIPC() {
 		return result.Events, nil
 	})
 
+	d.ipcServer.Handle("audit.cost", func(params json.RawMessage) (interface{}, error) {
+		var filter audit.QueryFilter
+		if len(params) > 0 {
+			var f struct {
+				Since string `json:"since"`
+				Until string `json:"until"`
+				Agent string `json:"agent"`
+			}
+			if err := json.Unmarshal(params, &f); err != nil {
+				return nil, fmt.Errorf("parse params: %w", err)
+			}
+			if f.Since != "" {
+				t, _ := time.Parse(time.RFC3339, f.Since)
+				filter.Since = &t
+			}
+			if f.Until != "" {
+				t, _ := time.Parse(time.RFC3339, f.Until)
+				filter.Until = &t
+			}
+			filter.Agent = f.Agent
+		}
+		return audit.QueryCostSummary(d.store.DB(), filter)
+	})
+
 	d.ipcServer.HandleSubscribe(func(params json.RawMessage, send func(string, interface{}) error, done <-chan struct{}) error {
 		ch := d.logger.Subscribe()
 		defer d.logger.Unsubscribe(ch)
@@ -410,15 +470,68 @@ func (d *Daemon) reloadRuntime() (int, error) {
 	d.commandments = newCommandments
 	d.logger.SetEvaluator(d.commandments)
 	d.logger.SetRedactor(d.commandments)
+	if d.proxy != nil {
+		d.proxy.SetEvaluator(d.commandments)
+	}
 
 	d.classifier = newRegistry
 	logwatcher.SetClassifier(d.classifier)
+	if d.proxy != nil {
+		d.proxy.SetClassifier(d.classifier)
+		if mapErr := d.proxy.ReloadMappings(); mapErr != nil {
+			log.Printf("daemon: proxy mapping reload error: %v", mapErr)
+			d.emitSystemEvent("proxy_mappings_reload_failed", audit.OutcomeFailure, map[string]interface{}{"error": mapErr.Error()})
+		} else {
+			d.emitSystemEvent("proxy_mappings_reload_ok", audit.OutcomeSuccess, nil)
+		}
+	}
 
 	rulesLoaded := len(d.commandments.List())
 	d.emitSystemEvent("commandments_reload_ok", audit.OutcomeSuccess, map[string]interface{}{"rules_loaded": rulesLoaded})
 	d.emitSystemEvent("tool_registry_reload_ok", audit.OutcomeSuccess, map[string]interface{}{"version": newRegistry.Version()})
 
 	return rulesLoaded, nil
+}
+
+func (d *Daemon) proxyConfig() proxy.Config {
+	providers := make(map[string]proxy.ProviderConfig, len(d.cfg.Adapters.Proxy.Providers))
+	for name, p := range d.cfg.Adapters.Proxy.Providers {
+		authMode := p.AuthMode
+		if authMode == "" {
+			authMode = "passthrough"
+		}
+		providers[name] = proxy.ProviderConfig{
+			Name:            name,
+			UpstreamBaseURL: p.UpstreamBaseURL,
+			AuthMode:        authMode,
+			AuthKey:         p.AuthKey,
+			RoutePatterns:   append([]string(nil), p.RoutePatterns...),
+			MaxIdleConns:    p.MaxIdleConns,
+			IdleConnTimeout: p.IdleConnTimeout.Duration(),
+		}
+	}
+
+	pricing := make(map[string]proxy.Pricing, len(d.cfg.Cost.Pricing))
+	for model, p := range d.cfg.Cost.Pricing {
+		pricing[model] = proxy.Pricing{
+			InputPerMillion:  p.Input,
+			OutputPerMillion: p.Output,
+		}
+	}
+
+	return proxy.Config{
+		Listen:              d.cfg.Adapters.Proxy.Listen,
+		DefaultProvider:     d.cfg.Adapters.Proxy.DefaultProvider,
+		UpstreamTimeout:     d.cfg.Adapters.Proxy.UpstreamTimeout.Duration(),
+		StreamIdleTimeout:   d.cfg.Adapters.Proxy.StreamIdleTimeout.Duration(),
+		MaxRequestBody:      d.cfg.Adapters.Proxy.MaxRequestBody,
+		RedactEgressDefault: d.cfg.Adapters.Proxy.RedactEgressDefault,
+		RedactPatterns:      d.cfg.Adapters.Proxy.RedactPatterns,
+		MappingsDir:         d.cfg.Adapters.Proxy.MappingsDir,
+		MappingStrictMode:   d.cfg.Adapters.Proxy.MappingStrictMode,
+		Providers:           providers,
+		Pricing:             pricing,
+	}
 }
 
 func (d *Daemon) loadToolRegistryCandidate() (*classify.Registry, error) {
