@@ -163,7 +163,7 @@ func LoadConfig(path string) (*Config, error) {
 		}
 		cfg.Adapters.LogWatcher.Enabled = true
 		cfg.Adapters.LogWatcher.PollFallbackInterval = Duration(30 * time.Second)
-		cfg.Adapters.Proxy.Enabled = false
+		cfg.Adapters.Proxy.Enabled = true
 		cfg.Adapters.Proxy.Listen = "127.0.0.1:9119"
 		cfg.Adapters.Proxy.DefaultProvider = "openai"
 		cfg.Adapters.Proxy.UpstreamTimeout = Duration(30 * time.Second)

@@ -19,7 +19,7 @@ adapters:
     enabled: true
     poll_fallback_interval: 30s
   proxy:
-    enabled: false
+    enabled: true
     listen: 127.0.0.1:9119
     default_provider: openai
     upstream_timeout: 30s
