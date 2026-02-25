@@ -21,11 +21,17 @@ func proxyEnvPairs(cfg *daemon.Config) []envPair {
 		{"HTTPS_PROXY", proxyURL},
 		{"HTTP_PROXY", proxyURL},
 		{"ALL_PROXY", proxyURL},
+		{"https_proxy", proxyURL},
+		{"http_proxy", proxyURL},
+		{"all_proxy", proxyURL},
 	}
 	if cfg.Adapters.Proxy.CACert != "" {
 		pairs = append(pairs, envPair{"NODE_EXTRA_CA_CERTS", cfg.Adapters.Proxy.CACert})
 	}
-	pairs = append(pairs, envPair{"NO_PROXY", "localhost,127.0.0.1"})
+	pairs = append(pairs,
+		envPair{"NO_PROXY", "localhost,127.0.0.1"},
+		envPair{"no_proxy", "localhost,127.0.0.1"},
+	)
 	return pairs
 }
 

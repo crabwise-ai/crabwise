@@ -5,6 +5,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -330,6 +332,92 @@ func TestConnectMITM_CommandmentBlocks(t *testing.T) {
 
 	if n := upstreamHits.Load(); n != 0 {
 		t.Fatalf("upstream should not be hit when blocked; got %d hits", n)
+	}
+}
+
+func TestConnectMITM_SSEStreaming(t *testing.T) {
+	// Fake upstream sends an SSE stream matching the OpenAI streaming format.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Error("expected http.Flusher")
+			return
+		}
+
+		chunks := []string{
+			`{"id":"chatcmpl-stream","model":"gpt-4o","choices":[{"delta":{"content":"Hello"}}]}`,
+			`{"id":"chatcmpl-stream","model":"gpt-4o","choices":[{"delta":{"content":" world"}}]}`,
+			`{"id":"chatcmpl-stream","model":"gpt-4o","choices":[{"finish_reason":"stop","delta":{}}],"usage":{"prompt_tokens":5,"completion_tokens":2}}`,
+		}
+		for _, chunk := range chunks {
+			fmt.Fprintf(w, "data: %s\n\n", chunk)
+			flusher.Flush()
+			time.Sleep(10 * time.Millisecond)
+		}
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer upstream.Close()
+
+	upstreamURL := strings.Replace(upstream.URL, "127.0.0.1", "localhost", 1)
+	caCert, caKey, caPool := generateTestCA(t)
+	cfg := testProxyConfig(upstreamURL, caCert, caKey)
+	proxyAddr := startTestProxy(t, cfg, allowEval{})
+
+	proxyURL, _ := url.Parse("http://" + proxyAddr)
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+			TLSClientConfig: &tls.Config{
+				RootCAs: caPool,
+			},
+		},
+	}
+
+	u, _ := url.Parse(upstreamURL)
+	target := "https://" + u.Host + "/v1/chat/completions"
+	resp, err := client.Post(target, "application/json",
+		strings.NewReader(`{"model":"gpt-4o","stream":true,"messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatalf("SSE streaming request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+	}
+
+	// Read entire body and verify we got all SSE chunks intact.
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read SSE body: %v", err)
+	}
+
+	bodyStr := string(body)
+	if !strings.Contains(bodyStr, `"content":"Hello"`) {
+		t.Fatalf("missing first SSE chunk in response body")
+	}
+	if !strings.Contains(bodyStr, `"content":" world"`) {
+		t.Fatalf("missing second SSE chunk in response body")
+	}
+	if !strings.Contains(bodyStr, `"finish_reason":"stop"`) {
+		t.Fatalf("missing finish_reason in response body")
+	}
+	if !strings.Contains(bodyStr, "[DONE]") {
+		t.Fatalf("missing [DONE] sentinel in response body")
+	}
+
+	// Verify MITM cert was used.
+	if resp.TLS == nil || len(resp.TLS.PeerCertificates) == 0 {
+		t.Fatal("expected TLS peer certificates from MITM")
+	}
+	if cn := resp.TLS.PeerCertificates[0].Issuer.CommonName; cn != "Crabwise Local CA" {
+		t.Fatalf("expected MITM cert, got issuer CN=%q", cn)
 	}
 }
 
