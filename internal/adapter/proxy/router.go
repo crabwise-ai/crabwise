@@ -2,7 +2,9 @@ package proxy
 
 import (
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"path"
 	"strings"
 )
@@ -52,6 +54,24 @@ func (r *Router) Resolve(req *http.Request) (*ProviderRuntime, string, error) {
 		return rt, r.defaultProvider, nil
 	}
 	return nil, "", fmt.Errorf("no route and default provider unavailable")
+}
+
+// ResolveByDomain looks up a provider by its upstream hostname.
+// Used by the CONNECT handler to determine whether to MITM a domain.
+func (r *Router) ResolveByDomain(host string) (*ProviderRuntime, string, bool) {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	for name, runtime := range r.providers {
+		u, err := url.Parse(runtime.Config.UpstreamBaseURL)
+		if err != nil {
+			continue
+		}
+		if u.Hostname() == host {
+			return runtime, name, true
+		}
+	}
+	return nil, "", false
 }
 
 func routeMatches(pattern, requestPath string) bool {

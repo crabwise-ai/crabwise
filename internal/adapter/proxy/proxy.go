@@ -43,6 +43,7 @@ type Proxy struct {
 	router         *Router
 	providers      map[string]*ProviderRuntime
 	providersMu    sync.RWMutex
+	certCache      *CertCache
 	httpSrv        *http.Server
 	metrics        Metrics
 	rawPayloads    RawPayloadWriter
@@ -79,7 +80,7 @@ func New(cfg Config, evaluator Evaluator, classifier classify.Classifier, events
 		return nil, fmt.Errorf("proxy config: %w", err)
 	}
 
-	return &Proxy{
+	p := &Proxy{
 		cfg:            cfg,
 		evaluator:      evaluator,
 		classifier:     classifier,
@@ -87,7 +88,17 @@ func New(cfg Config, evaluator Evaluator, classifier classify.Classifier, events
 		router:         router,
 		providers:      providers,
 		extraRedactREs: extraREs,
-	}, nil
+	}
+
+	if cfg.CACert != "" && cfg.CAKey != "" {
+		ca, err := LoadCA(cfg.CACert, cfg.CAKey)
+		if err != nil {
+			return nil, fmt.Errorf("load CA for MITM proxy: %w", err)
+		}
+		p.certCache = NewCertCache(ca, 256)
+	}
+
+	return p, nil
 }
 
 func buildProviders(cfg Config) (map[string]*ProviderRuntime, error) {
@@ -167,13 +178,21 @@ func (p *Proxy) ReloadMappings() error {
 }
 
 func (p *Proxy) Start(ctx context.Context) error {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", p.handleHealth)
-	mux.HandleFunc("/", p.handleProxy)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodConnect {
+			p.handleConnect(w, r)
+			return
+		}
+		if r.URL.Path == "/health" {
+			p.handleHealth(w, r)
+			return
+		}
+		p.handleProxy(w, r)
+	})
 
 	p.httpSrv = &http.Server{
 		Addr:    p.cfg.Listen,
-		Handler: mux,
+		Handler: handler,
 	}
 
 	go func() {

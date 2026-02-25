@@ -44,6 +44,8 @@ func NewRootCmd() *cobra.Command {
 		newCommandmentsCmd(),
 		newAuditCmd(),
 		newWatchCmd(),
+		newWrapCmd(),
+		newEnvCmd(),
 	)
 
 	return root
