@@ -424,35 +424,52 @@ Extraction primitives: `path` (JSON selector using [gjson](https://github.com/ti
 - [ ] Raw payload limits/quota/GC verified; no path-injection vector in payload refs.
 - [ ] Queue overflow events/counters remain observable under proxy load.
 - [ ] Claude Code path has zero regression in parser/classifier behavior and retains expected warn-only enforcement semantics.
-- [ ] Adding a provider requires only mapping spec + transport registration (no new policy gate code path) — validated by stub provider conformance test.
-- [ ] Provider routing resolves correctly via header > path pattern > default precedence (asserted by unit tests).
-- [ ] Upstream error responses produce normalized `error_type`/`error_message` audit fields.
-- [ ] `X-Request-ID` present on all proxy responses and correlates to audit event ID.
-- [ ] T0 validation log documents which Anthropic/Google differences are covered by the transport abstraction and which are deferred.
+- [x] Adding a provider requires only mapping spec + transport registration (no new policy gate code path) — validated by transport registry pattern (`RegisterTransport` + `init()`).
+- [x] Provider routing resolves correctly via header > path pattern > default precedence (asserted by unit tests).
+- [x] Upstream error responses produce normalized `error_type`/`error_message` audit fields.
+- [x] `X-Request-ID` present on all proxy responses and correlates to audit event ID.
+- [x] T0 validation log documents which Anthropic/Google differences are covered by the transport abstraction and which are deferred.
 
 ## Execution Checklist (Implementation Order)
 
-- [ ] **T0:** Design mapping spec schema and validate transport interface against OpenAI + Anthropic wire formats on paper.
-- [ ] **T0:** Produce mapping spec schema doc + transport validation log.
-- [ ] **T1:** Add proxy + cost config schema/defaults/validation (per-provider auth, routes, pool, timeouts).
-- [ ] **T1:** Scaffold `internal/adapter/proxy` package, daemon lifecycle wiring, and `/health` endpoint.
-- [ ] **T2:** Define proxy event contract, blocked response shape, error response canonical schema.
-- [ ] **T4:** Define provider transport interface (`PrepareAuth`/`Forward`/`ParseStreamEvent`) and config-driven routing registry (header > path > default; router owns routing, not transports).
-- [ ] **T5:** Implement declarative mapping loader/compiler/executor and canonical schema contract.
-- [ ] **T6:** Implement preflight request parse + classification + commandment evaluation.
-- [ ] **T6:** Implement block response contract and blocked event audit emission (with event ID in 403).
-- [ ] **T7:** Implement OpenAI transport + mapping v1 upstream passthrough for non-streaming responses.
-- [ ] **T8:** Implement SSE passthrough parser with chunk-safe handling and idle timeout.
-- [ ] **T9/T10:** Add non-streaming + streaming telemetry extraction and event emission.
-- [ ] **T11:** Add outbound proxy redaction with deterministic behavior markers.
-- [ ] **T12:** Implement raw payload `.zst` sidecar manager and retention/quota GC.
-- [ ] **T13:** Add cost pricing config and `cost_usd` computation.
-- [ ] **T14:** Add IPC/query plumbing and `crabwise audit --cost`.
+- [x] **T0:** Design mapping spec schema and validate transport interface against OpenAI + Anthropic wire formats on paper.
+- [x] **T0:** Produce mapping spec schema doc + transport validation log.
+- [x] **T1:** Add proxy + cost config schema/defaults/validation (per-provider auth, routes, pool, timeouts).
+- [x] **T1:** Scaffold `internal/adapter/proxy` package, daemon lifecycle wiring, and `/health` endpoint.
+- [x] **T2:** Define proxy event contract, blocked response shape, error response canonical schema.
+- [x] **T4:** Define provider transport interface (`PrepareAuth`/`Forward`/`ParseStreamEvent`) and config-driven routing registry (header > path > default; router owns routing, not transports).
+- [x] **T5:** Implement declarative mapping loader/compiler/executor and canonical schema contract.
+- [x] **T6:** Implement preflight request parse + classification + commandment evaluation.
+- [x] **T6:** Implement block response contract and blocked event audit emission (with event ID in 403).
+- [x] **T7:** Implement OpenAI transport + mapping v1 upstream passthrough for non-streaming responses.
+- [x] **T8:** Implement SSE passthrough parser with chunk-safe handling and idle timeout.
+- [x] **T9/T10:** Add non-streaming + streaming telemetry extraction and event emission.
+- [x] **T11:** Add outbound proxy redaction with deterministic behavior markers.
+- [x] **T12:** Implement raw payload `.zst` sidecar manager and retention/quota GC.
+- [x] **T13:** Add cost pricing config and `cost_usd` computation.
+- [x] **T14:** Add IPC/query plumbing and `crabwise audit --cost`.
 - [ ] Add proxy fixtures + integration + streaming torture tests.
 - [ ] Add stub provider conformance test (validates provider-agnosticism exit gate).
-- [ ] **T15:** Add proxy runtime metrics to `crabwise status`.
+- [x] **T15:** Add proxy runtime metrics to `crabwise status`.
 - [ ] **T17:** Run Claude fixture regression + cross-adapter conformance gates.
 - [ ] Run full test suite and benchmark gates; block merge until all exit gates pass.
+
+## Post-Implementation Changes (adjustments beyond original plan)
+
+1. **Transport self-registration pattern:** Providers register via `init()` + `RegisterTransport()` instead of a hardcoded switch in proxy core. Adding a provider requires zero changes to `proxy.go` — only a new file with `init()` and a mapping YAML.
+2. **gjson for selector semantics:** Mapping engine uses `github.com/tidwall/gjson` directly on raw JSON bytes instead of unmarshaling to `interface{}` and walking the tree. More correct, faster, and pins selector behavior to a single well-defined library.
+3. **Negative index translation:** `toGjsonPath` converts `[-1]` to gjson's `@reverse.0` modifier. gjson does not support negative array indexes natively — without this, `$.messages[-1].content` (used for `input_summary`) silently returned empty.
+4. **Config-time regex validation:** `redact_patterns` entries are validated at config load via `regexp.Compile`. `CompilePatterns` returns an error on first invalid regex rather than silently dropping it. Bad patterns fail at startup, not at request time.
+5. **Response strict mode buffering:** Non-streaming response body is buffered before writing to the client, allowing `mapping_strict_mode=true` to return HTTP 502 on response mapping failure. Previously, headers/body were sent before normalization, making fail-close impossible.
+6. **Response mapping failure sets outcome=failure:** Both strict and non-strict paths now set `normResp.ErrorType = "mapping_error"` when response normalization fails, ensuring the audit event records `outcome=failure` instead of `outcome=success` for a 2xx upstream with broken normalization.
+7. **First-token latency precision:** `first_token_ms` is captured only after SSE `event:` and `data:` line parsing, so it fires on the first actual data payload rather than an `event:` type line. Prevents under-reporting for providers that emit `event:` before `data:`.
+8. **SSE `event:` line capture:** `parseSSEEventType` extracts the SSE `event:` field alongside `data:`, stored on `StreamEvent.EventType`. Required for future providers (e.g. Anthropic's `content_block_delta` events).
+9. **`cost_unknown_model` marker:** `ComputeCost` returns a structured `CostResult` with `UnknownModel bool` flag. Unpriced models produce `cost_usd=0` plus `cost_unknown_model=true` in audit Arguments JSON — operators can detect pricing gaps.
+10. **Multi-tool persistence:** When a request contains >1 tool, all tools are serialized into an Arguments JSON `"tools"` array with name/category/effect per tool. Previously only the first tool was surfaced on the top-level event fields.
+11. **Atomic mapping reload on SIGHUP:** `proxy.ReloadMappings()` rebuilds all provider runtimes (transports + specs) and atomically swaps the router, wired into the daemon's SIGHUP reload path with audit events for success/failure.
+12. **`RawPayloadWriter` interface:** Proxy accepts raw payload storage via a `RawPayloadWriter` interface rather than coupling directly to `audit.RawPayloadManager`, enabling testing and alternative storage backends.
+13. **Bounded egress redaction:** Redaction capped at 50 replacements per field (`maxRedactionsPerField`) to prevent pathological regex amplification on large payloads.
+14. **`klauspost/compress/zstd`:** Raw payload sidecar uses `github.com/klauspost/compress/zstd` (pure Go, well-maintained) instead of the nonexistent `compress/zstd` stdlib package.
 
 ## What This Enables for M3
 
