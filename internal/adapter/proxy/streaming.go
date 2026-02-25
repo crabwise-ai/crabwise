@@ -136,8 +136,3 @@ func parseSSEEventType(line []byte) string {
 	}
 	return ""
 }
-
-func hasContent(line []byte) bool {
-	s := strings.TrimSpace(string(line))
-	return s != "" && !strings.HasPrefix(s, ":") && s != "data: [DONE]"
-}
