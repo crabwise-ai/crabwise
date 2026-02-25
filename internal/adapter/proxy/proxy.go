@@ -350,9 +350,11 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 			responseMapped, respMapErr := NormalizeResponse(providerRuntime.Mapping, respBody, upstreamResp.StatusCode)
 			if respMapErr != nil {
 				normResp.MappingDegraded = true
+				normResp.ErrorType = "mapping_error"
+				normResp.ErrorMessage = "response mapping failed: " + respMapErr.Error()
 				p.metrics.MappingDegraded.Add(1)
 				if p.cfg.MappingStrictMode {
-					writeProxyError(w, http.StatusBadGateway, "mapping_error", "response mapping failed: "+respMapErr.Error(), eventID)
+					writeProxyError(w, http.StatusBadGateway, "mapping_error", normResp.ErrorMessage, eventID)
 				} else {
 					sendUpstreamHeaders(upstreamResp.StatusCode)
 					_, _ = w.Write(respBody)
