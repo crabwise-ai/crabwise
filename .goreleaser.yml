@@ -22,10 +22,15 @@ archives:
 checksum:
   name_template: checksums.txt
 
+release:
+  header: |-
+    **Crabwise** is a local-first daemon that monitors AI agent activity. It watches Claude Code and Codex CLI sessions, builds a hash-chained audit trail in SQLite, and lets you query or stream events in real time.
+
+    ## What's in this release
+
 changelog:
   sort: asc
   filters:
     exclude:
       - "^docs:"
       - "^test:"
-      - "^chore:"
