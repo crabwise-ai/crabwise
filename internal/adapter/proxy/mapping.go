@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -254,8 +253,3 @@ func toGjsonPath(selector string) string {
 }
 
 var negIndexRE = regexp.MustCompile(`\[-?\d+\]`)
-
-func mustJSON(v interface{}) []byte {
-	b, _ := json.Marshal(v)
-	return b
-}

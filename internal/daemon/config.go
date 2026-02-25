@@ -312,7 +312,7 @@ func (c *Config) validate() error {
 		}
 		for i, pat := range c.Adapters.Proxy.RedactPatterns {
 			if _, err := regexp.Compile(pat); err != nil {
-				return fmt.Errorf("adapters.proxy.redact_patterns[%d] invalid regex %q: %v", i, pat, err)
+				return fmt.Errorf("adapters.proxy.redact_patterns[%d] invalid regex %q: %w", i, pat, err)
 			}
 		}
 	}
