@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -67,12 +68,14 @@ func (p *Proxy) mitmConnect(clientConn net.Conn, hostname string) {
 		Handler: http.HandlerFunc(p.handleProxy),
 	}
 	srv.SetKeepAlivesEnabled(false)
-	srv.Serve(newSingleConnListener(tlsConn))
+	if err := srv.Serve(newSingleConnListener(tlsConn)); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
+		log.Printf("proxy: MITM serve failed for %s: %v", hostname, err)
+	}
 }
 
 func (p *Proxy) tunnelConnect(w http.ResponseWriter, targetAddr string) {
 	if !strings.Contains(targetAddr, ":") {
-		targetAddr = targetAddr + ":443"
+		targetAddr += ":443"
 	}
 
 	remote, err := net.DialTimeout("tcp", targetAddr, 10*time.Second)
@@ -96,17 +99,25 @@ func (p *Proxy) tunnelConnect(w http.ResponseWriter, targetAddr string) {
 
 	go func() {
 		defer wg.Done()
-		io.Copy(remote, clientConn)
+		if _, err := io.Copy(remote, clientConn); err != nil && !errors.Is(err, net.ErrClosed) {
+			log.Printf("proxy: tunnel upstream copy failed for %s: %v", targetAddr, err)
+		}
 		if tc, ok := remote.(*net.TCPConn); ok {
-			tc.CloseWrite()
+			if err := tc.CloseWrite(); err != nil && !errors.Is(err, net.ErrClosed) {
+				log.Printf("proxy: tunnel upstream close-write failed for %s: %v", targetAddr, err)
+			}
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
-		io.Copy(clientConn, remote)
+		if _, err := io.Copy(clientConn, remote); err != nil && !errors.Is(err, net.ErrClosed) {
+			log.Printf("proxy: tunnel downstream copy failed for %s: %v", targetAddr, err)
+		}
 		if tc, ok := clientConn.(*net.TCPConn); ok {
-			tc.CloseWrite()
+			if err := tc.CloseWrite(); err != nil && !errors.Is(err, net.ErrClosed) {
+				log.Printf("proxy: tunnel downstream close-write failed for %s: %v", targetAddr, err)
+			}
 		}
 	}()
 
