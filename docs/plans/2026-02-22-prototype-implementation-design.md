@@ -123,28 +123,43 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 - `crabwise status` exposes `unclassified_tool_count` and operators can use it to spot taxonomy drift
 - `crabwise classify` output is deterministic and includes classification provenance
 
-### M2 — Proxy + Block Enforcement (Weeks 3-4)
+### M2 — Proxy + Block Enforcement (Weeks 3-4) 🔶 IN PROGRESS
 
 **Demo:** Disallowed model request denied before reaching provider; `crabwise audit` shows blocked event
 
-| Deliverable | Detail |
-|------------|--------|
-| HTTP proxy | `localhost:9119`, OpenAI-compatible transparent passthrough |
-| SSE streaming | Correct under chunking, flush, disconnect, cancel, timeout |
-| Block enforcement | Commandment eval in request hot path, error returned to agent |
-| GenAI telemetry | Model, tokens, cost, finish reason, provider |
-| Cost tracking | Configurable per-model pricing, `crabwise audit --cost` |
-| Proxy egress redaction | Redact credential patterns in outbound payloads before upstream |
-| Event queue hardening | Bounded queue, backpressure/drop accounting, `pipeline_overflow` events |
-| Raw payloads | Sidecar `.zst` blobs, logical ID ref (no path injection), hard limits enforced |
+| Deliverable | Detail | Status |
+|------------|--------|--------|
+| HTTP proxy | `localhost:9119`, OpenAI-compatible transparent passthrough | ✅ |
+| SSE streaming | Correct under chunking, flush, disconnect, cancel, timeout | ✅ |
+| Block enforcement | Commandment eval in request hot path, error returned to agent | ✅ |
+| GenAI telemetry | Model, tokens, cost, finish reason, provider | ✅ |
+| Cost tracking | Configurable per-model pricing, `crabwise audit --cost` | ✅ |
+| Proxy egress redaction | Redact credential patterns in outbound payloads before upstream | ✅ |
+| Event queue hardening | Bounded queue, backpressure/drop accounting, `pipeline_overflow` events | ✅ (from M1) |
+| Raw payloads | Sidecar `.zst` blobs, logical ID ref (no path injection), hard limits enforced | ✅ |
+| **Provider-agnostic transport** | **Self-registering transports via `RegisterTransport` + `init()`** | **✅ (unplanned)** |
+| **Declarative mapping engine** | **gjson-based YAML specs normalize payloads to canonical schema** | **✅** |
+| **Strict mode** | **`mapping_strict_mode=true` returns 502 on both request + response mapping failures** | **✅** |
+| **SIGHUP mapping reload** | **Atomic swap of provider runtimes + router on config reload** | **✅ (unplanned)** |
 
 **Exit gates:**
-- Proxy added latency: p95 < 20ms
-- Streaming first-token delta: < 50ms
-- Blocked requests never forwarded upstream (asserted in tests)
-- Streaming torture suite passes
-- Queue overflow deterministic and observable
-- Egress redaction tests pass; original third-party logs untouched
+- Proxy added latency: p95 < 20ms *(pending benchmark)*
+- Streaming first-token delta: < 50ms *(pending benchmark)*
+- Blocked requests never forwarded upstream *(pending integration test)*
+- Streaming torture suite passes *(pending — unit tests for SSE pass, full torture suite follow-up)*
+- Queue overflow deterministic and observable *(pending load test)*
+- Egress redaction tests pass; original third-party logs untouched *(partial — unit tests pass, integration follow-up)*
+
+**Post-M2 changes (beyond original plan):**
+- Transport self-registration via `init()` + `RegisterTransport()`: providers are decoupled from proxy core; adding a provider requires zero changes to `proxy.go`.
+- gjson pinned for mapping selector semantics: operates on raw JSON bytes, avoids `interface{}` tree walking.
+- Negative index support: `[-1]` translated to gjson `@reverse.0` modifier.
+- Config-time regex validation for `redact_patterns` (bad patterns fail at startup, not silently at runtime).
+- Response strict mode: non-streaming response body buffered before client write, enabling fail-close 502.
+- Response mapping failure audit: both strict and non-strict paths set `outcome=failure` (prevents false `outcome=success` on 2xx upstream with broken normalization).
+- `cost_unknown_model` marker for unpriced models; multi-tool persistence in Arguments JSON.
+- `klauspost/compress/zstd` for raw payload sidecar (pure Go, well-maintained).
+- Bounded egress redaction (max 50 replacements per field).
 
 ### M3 — TUI + Polish + Release (Week 5)
 
@@ -350,7 +365,23 @@ adapters:
   proxy:
     enabled: true
     listen: 127.0.0.1:9119
+    default_provider: openai
     upstream_timeout: 30s
+    stream_idle_timeout: 120s
+    max_request_body: 10485760    # 10MB
+    redact_egress_default: false
+    mappings_dir: ~/.config/crabwise/proxy_mappings
+    mapping_strict_mode: false
+    providers:
+      openai:
+        upstream_base_url: https://api.openai.com
+        auth_mode: passthrough
+        route_patterns:
+          - /v1/chat/completions
+          - /v1/responses
+          - /v1/embeddings
+        max_idle_conns: 10
+        idle_conn_timeout: 90s
 
 queue:
   capacity: 10000
@@ -525,9 +556,14 @@ crabwise/
 │   │   │   ├── codexcli.go         # Codex CLI JSONL parser
 │   │   │   └── parser_router.go    # Source/type-based parser routing
 │   │   └── proxy/
-│   │       ├── proxy.go            # HTTP proxy server
-│   │       ├── streaming.go        # SSE passthrough
-│   │       └── openai.go           # OpenAI-compatible adapter
+│   │       ├── proxy.go            # HTTP proxy server (request lifecycle, policy gate, audit emission)
+│   │       ├── provider.go         # Transport interface, factory registry, canonical types
+│   │       ├── router.go           # Provider routing (header > path pattern > default)
+│   │       ├── mapping.go          # Declarative gjson-based mapping engine
+│   │       ├── streaming.go        # SSE passthrough with telemetry extraction
+│   │       ├── openai.go           # OpenAI transport v1 (self-registers via init)
+│   │       ├── redaction.go        # Egress redaction with bounded replacement
+│   │       └── cost.go             # Per-model cost computation
 │   ├── classify/
 │   │   ├── taxonomy.go             # Canonical category/effect definitions
 │   │   └── registry.go             # Provider-aware registry + deterministic resolver
@@ -539,8 +575,9 @@ crabwise/
 │   ├── audit/
 │   │   ├── logger.go               # Batched SQLite writer + hash chain
 │   │   ├── events.go               # Event type definitions
-│   │   ├── query.go                # Query builder
+│   │   ├── query.go                # Query builder + cost summary
 │   │   ├── redaction.go            # Secret redaction pipeline
+│   │   ├── rawpayload.go           # Sidecar .zst blob manager (write/read/GC)
 │   │   └── otel.go                 # OTel span emission
 │   ├── discovery/
 │   │   ├── scanner.go              # /proc + log file scanning
@@ -572,13 +609,19 @@ crabwise/
 ├── configs/
 │   ├── default.yaml
 │   ├── commandments_default.yaml
-│   └── tool_registry.yaml
+│   ├── tool_registry.yaml
+│   └── proxy_mappings/
+│       └── openai.yaml             # OpenAI mapping spec to canonical schema
 ├── .github/
 │   ├── workflows/
 │   │   ├── ci.yml                  # Lint + test + build on push/PR
 │   │   └── release.yml             # GoReleaser on tag push, gated on CI
 │   └── dependabot.yml              # Weekly Go module + Actions updates
 ├── docs/
+│   ├── plans/                      # Milestone plans
+│   └── design/
+│       ├── mapping-spec.md         # Proxy mapping spec schema reference
+│       └── transport-validation.md # Multi-provider transport abstraction walkthrough
 ├── go.mod
 ├── go.sum
 ├── install.sh                      # curl | bash installer
@@ -617,7 +660,7 @@ If week-5 schedule slips, defer in this order (least critical first):
 2. **OTel export** — local-only audit is the core value; OTel is optional enhancement
 3. ~~**Install script** — manual binary download acceptable for prototype~~ ✅ Done in M0
 4. ~~**Cross-compile arm64** — amd64 only is fine for prototype~~ ✅ Done in M0 (linux+darwin, amd64+arm64)
-5. **`crabwise audit --cost`** — cost data still captured, just no summary view
+5. ~~**`crabwise audit --cost`** — cost data still captured, just no summary view~~ ✅ Done in M2
 
 **Never de-scope:** proxy correctness, SSE streaming, block enforcement, audit integrity, redaction.
 

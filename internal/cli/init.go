@@ -21,6 +21,8 @@ func newInitCmd() *cobra.Command {
 			configPath := filepath.Join(configDir, "config.yaml")
 			commandmentsPath := filepath.Join(configDir, "commandments.yaml")
 			toolRegistryPath := filepath.Join(configDir, "tool_registry.yaml")
+			mappingsDir := filepath.Join(configDir, "proxy_mappings")
+			openaiMappingPath := filepath.Join(mappingsDir, "openai.yaml")
 
 			if err := os.MkdirAll(configDir, 0700); err != nil {
 				return fmt.Errorf("create config dir: %w", err)
@@ -40,6 +42,13 @@ func newInitCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("write tool registry: %w", err)
 			}
+			if err := os.MkdirAll(mappingsDir, 0700); err != nil {
+				return fmt.Errorf("create mappings dir: %w", err)
+			}
+			openaiMappingWritten, err := writeDefaultFile(openaiMappingPath, configs.DefaultOpenAIProxyMappingYAML, force)
+			if err != nil {
+				return fmt.Errorf("write openai mapping: %w", err)
+			}
 
 			if configWritten {
 				fmt.Printf("Config written to %s\n", configPath)
@@ -57,6 +66,11 @@ func newInitCmd() *cobra.Command {
 				fmt.Printf("Tool registry written to %s\n", toolRegistryPath)
 			} else {
 				fmt.Printf("Tool registry already exists at %s\n", toolRegistryPath)
+			}
+			if openaiMappingWritten {
+				fmt.Printf("OpenAI proxy mapping written to %s\n", openaiMappingPath)
+			} else {
+				fmt.Printf("OpenAI proxy mapping already exists at %s\n", openaiMappingPath)
 			}
 
 			return nil
