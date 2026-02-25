@@ -1,51 +1,36 @@
 ---
 name: Proxy Enforcement Architecture
-overview: Rearchitect crabwise's proxy from a reverse proxy to a forward proxy (HTTP CONNECT + MITM TLS), making provider interception reliable by default. Build on the existing proxy internals -- the request processing pipeline, streaming, mapping, and commandment evaluation all stay. Lock non-intercept behavior to deny-by-default, lock client-edge protocol to HTTP/1.1 for initial release, define CA key lifecycle, define domain+path routing precedence, and require client compatibility validation.
+overview: "Rearchitect crabwise's proxy from a reverse proxy to a forward proxy (HTTP CONNECT + MITM TLS). Tunnel unknown traffic transparently, MITM only configured AI provider domains. Minimal setup: `crabwise init` generates a CA, `crabwise wrap -- codex` handles the rest."
 todos:
   - id: ca-gen
-    content: "Implement CA certificate generation: ECDSA P-256 CA cert + key pair, generated during `crabwise init`, stored at ~/.local/share/crabwise/ca.{crt,key}"
-    status: pending
-  - id: ca-lifecycle
-    content: "Define and implement CA lifecycle: strict file perms (key 0600), idempotent reuse, corruption handling, explicit rotation command (`crabwise ca rotate`), and trust migration instructions"
+    content: "Implement CA generation in internal/adapter/proxy/ca.go: ECDSA P-256 CA cert + key, ephemeral cert signing for intercepted domains, cert cache with bounded size"
     status: pending
   - id: connect-handler
-    content: Implement HTTP CONNECT handler with MITM TLS in internal/adapter/proxy/connect.go -- enforce default_connect_policy (deny unknown CONNECT targets), hijack connection, generate ephemeral cert for target domain, terminate TLS, then feed decrypted request into existing handleProxy pipeline
+    content: "Implement CONNECT handler in internal/adapter/proxy/connect.go: tunnel unknown domains transparently, MITM known provider domains, hijack connection, TLS handshake (h1 only), feed decrypted request into existing handleProxy"
     status: pending
   - id: config-update
-    content: "Update config schema: remove reverse proxy mode, add ca_cert/ca_key paths, auto-derive intercept_domains from providers[].upstream_base_url, add default_connect_policy (deny|tunnel, default deny), add tunnel_allow_domains (used only when policy=tunnel), and add strict_ca_permissions=true default"
-    status: pending
-  - id: alpn-policy
-    content: "Lock initial client-edge ALPN policy to HTTP/1.1 only (NextProtos=['http/1.1']); document HTTP/2 edge termination as deferred phase"
+    content: "Update config: add ca_cert/ca_key paths, auto-derive intercept domains from providers[].upstream_base_url, remove reverse-proxy-only fields, validate one-domain-one-provider at startup"
     status: pending
   - id: domain-router
-    content: Add domain-based provider routing to Router with path disambiguation -- resolve CONNECT target host to provider candidates, then resolve ambiguous shared-domain cases using request path route_patterns
-    status: pending
-  - id: routing-precedence
-    content: "Lock routing precedence: CONNECT host/SNI allowlist first, then request path disambiguation; unknown/ambiguous routes return stable 400 routing_error with audit metadata"
-    status: pending
-  - id: client-compat
-    content: "Add client compatibility gate: maintain tested matrix (Codex, Claude Code, curl, Node, Go), add diagnostics when proxy is enabled but no CONNECT traffic is observed, and document `wrap` as preferred path"
+    content: "Add ResolveByDomain(host) to Router: domain -> single provider lookup, used by CONNECT handler before MITM"
     status: pending
   - id: proxy-start-refactor
-    content: Refactor Proxy.Start() to detect CONNECT requests and route to the new handler, while regular HTTP requests (like /health) still work
-    status: pending
-  - id: wrap-cmd
-    content: Implement `crabwise wrap -- <cmd>` that launches a subprocess with HTTPS_PROXY and NODE_EXTRA_CA_CERTS set
-    status: pending
-  - id: env-cmd
-    content: Implement `crabwise env` that outputs shell-sourceable HTTPS_PROXY and NODE_EXTRA_CA_CERTS vars
+    content: Refactor Proxy.Start() to detect CONNECT vs regular HTTP and route accordingly; /health stays on plain HTTP
     status: pending
   - id: init-update
-    content: Update `crabwise init` to generate CA cert and print trust instructions (system trust store, NODE_EXTRA_CA_CERTS)
+    content: "Update crabwise init: generate CA cert if missing (idempotent), validate and reuse if exists, print trust instructions, --force to regenerate"
+    status: pending
+  - id: wrap-cmd
+    content: "Implement crabwise wrap -- <cmd>: sets HTTPS_PROXY, NODE_EXTRA_CA_CERTS, NO_PROXY=localhost,127.0.0.1, then execs the command"
+    status: pending
+  - id: env-cmd
+    content: "Implement crabwise env [--shell bash|zsh|fish]: outputs sourceable HTTPS_PROXY and NODE_EXTRA_CA_CERTS vars"
     status: pending
   - id: cleanup
-    content: Remove reverse-proxy-only config and code paths (default_provider routing assumption, base URL rewriting); update default.yaml and docs
+    content: "Remove reverse-proxy-only code: default_provider as routing fallback, base URL rewriting assumption; update default.yaml and docs"
     status: pending
   - id: tests
-    content: "Integration tests: CONNECT + MITM handshake, unknown-domain CONNECT denied by default, optional allowlisted tunnel behavior, commandment blocking through forward proxy, SSE streaming through CONNECT tunnel, ALPN behavior (h1 success + h2-only client failure path), CA lifecycle (reuse/rotate/corrupt key handling + perms), domain+path routing disambiguation, client compatibility matrix checks, wrap/env output"
-    status: pending
-  - id: failure-gates
-    content: "Implement failure-mode and release gates: routing/CA/TLS/stream failure matrix, stable error+audit assertions, race/leak checks, cert-cache pressure tests, compatibility matrix pass criteria, and blocked-request upstream-hit proof"
+    content: "Tests: CONNECT+MITM handshake, unknown domain tunnels through, known domain gets intercepted, commandment blocks never reach upstream, SSE streaming through tunnel, CA generation idempotency, wrap/env output correctness, -race passes"
     status: pending
 isProject: false
 ---
@@ -56,30 +41,36 @@ isProject: false
 
 The [investigation](docs/proxy-blocking-investigation.md) confirms zero proxy traffic from Codex despite a healthy proxy listener. The proxy is a **reverse proxy** -- clients must change their API base URL to `http://127.0.0.1:9119`. Codex never did this, so all traffic went directly to OpenAI.
 
-The reverse proxy approach is inherently fragile: each client has its own env var, users forget to set them, and nothing prevents bypassing. We are dropping it entirely in favor of a forward proxy.
+The reverse proxy approach is inherently fragile: each client has its own env var, users forget to set them, and nothing prevents bypassing. We are replacing it with a forward proxy.
 
-## Solution: Forward Proxy with MITM TLS
+## Solution: Forward Proxy with Selective MITM
 
-Convert to a standard HTTP forward proxy (HTTP CONNECT + selective MITM TLS). This is how mitmproxy, Charles Proxy, and corporate HTTPS proxies work.
+Convert to an HTTP forward proxy. Transparently tunnel all traffic, except for configured AI provider domains which get MITM TLS interception for content inspection and commandment enforcement.
 
 ```mermaid
 sequenceDiagram
     participant Client as Codex / Claude Code
     participant Proxy as Crabwise Forward Proxy
-    participant Upstream as api.openai.com
+    participant AI as api.openai.com
+    participant Other as github.com
+
+    Note over Client,Proxy: All HTTPS traffic routes through proxy via HTTPS_PROXY
 
     Client->>Proxy: CONNECT api.openai.com:443
+    Note over Proxy: Known provider domain -> MITM
     Proxy-->>Client: 200 Connection Established
-    Note over Client,Proxy: TLS handshake with crabwise CA cert
+    Note over Client,Proxy: TLS with crabwise CA cert
     Client->>Proxy: POST /v1/chat/completions
     Proxy->>Proxy: Evaluate commandments
-    alt Blocked
-        Proxy-->>Client: 403 Policy Violation
-    else Allowed
-        Proxy->>Upstream: POST /v1/chat/completions
-        Upstream-->>Proxy: 200 OK (SSE stream)
-        Proxy-->>Client: 200 OK (SSE stream)
-    end
+    Proxy->>AI: Forward to real upstream
+    AI-->>Proxy: 200 OK (SSE stream)
+    Proxy-->>Client: 200 OK (SSE stream)
+
+    Client->>Proxy: CONNECT github.com:443
+    Note over Proxy: Unknown domain -> blind tunnel
+    Proxy-->>Client: 200 Connection Established
+    Note over Client,Other: Direct TLS, proxy cannot see content
+    Client->>Other: Git operations pass through untouched
 ```
 
 
@@ -87,154 +78,107 @@ sequenceDiagram
 **Why this works:**
 
 - **One env var covers all providers**: `HTTPS_PROXY=http://127.0.0.1:9119`
-- **Common HTTP stacks auto-detect it**: Go `net/http`, Node.js, Python `requests`, `curl` (validated per-client in tests)
+- **Non-AI traffic is unaffected**: git, npm, curl to docs sites -- all tunnel through transparently
 - **No per-client base URL knowledge needed**: client connects to the real domain; proxy sees it in the CONNECT header
-- **Existing proxy internals are fully reused**: the CONNECT handler is a new outer shell that feeds decrypted requests into the existing `handleProxy` pipeline
+- **Existing proxy internals are fully reused**: CONNECT handler is a new outer shell that feeds decrypted requests into the existing `handleProxy` pipeline
 
-## Locked Decisions (M2)
+## Key Decisions
 
-### 1) Unknown CONNECT targets are deny-by-default
+### Unknown CONNECT targets tunnel transparently
 
-- Intercept set is derived from configured provider upstream domains.
-- If a client sends `CONNECT` for a host outside that set:
-  - return `403` with stable error type `domain_not_allowed`
-  - emit an audit event with `decision=deny`, `target_host`, and `reason=not_in_intercept_set`
-- Optional escape hatch: `default_connect_policy: tunnel` with explicit `tunnel_allow_domains`; never unrestricted open tunneling.
-- Bind remains loopback by default (`127.0.0.1`) to avoid open-proxy exposure.
+When `HTTPS_PROXY` is set, **all** HTTPS traffic from the process goes through the proxy. If we denied unknown domains, `crabwise wrap -- codex` would break the moment Codex does a `git clone`, `npm install`, or hits any non-AI HTTPS endpoint.
 
-### 2) Initial ALPN scope is client-edge HTTP/1.1 only
+The right model (and the industry standard for selective MITM proxies): tunnel everything by default, intercept only what's configured. The intercept set is auto-derived from `providers[].upstream_base_url` in config -- no manual domain lists to maintain.
 
-- MITM TLS advertises `NextProtos: ["http/1.1"]` on the client-facing side.
-- Decrypted requests run through existing HTTP/1.1 `handleProxy` pipeline.
-- Upstream transport protocol remains independent (can use h2 where Go transport negotiates it).
-- Full client-edge HTTP/2 termination/multiplexing is explicitly deferred to a later phase.
-- Add observability counters for handshake/protocol failures (`tls_handshake_failed`, `client_protocol_unsupported`).
+- Known AI provider domain -> MITM: decrypt, inspect, apply commandments, forward
+- Everything else -> blind TCP tunnel: proxy cannot see content, traffic passes through unmodified
 
-### 3) CA lifecycle is explicit and fail-safe
+Security is maintained because the proxy binds to loopback only (`127.0.0.1`) and only governs the domains explicitly configured as providers.
 
-- CA key (`ca.key`) must be private (`0600`) and owned by the running user; cert/key permissions are validated at startup when `strict_ca_permissions=true`.
-- `crabwise init` is idempotent: if valid CA files exist, reuse by default.
-- Missing/corrupt CA material fails fast with actionable error; no silent regeneration during daemon startup.
-- Rotation is explicit (`crabwise ca rotate`) and prints trust migration instructions.
-- Audit emits structured lifecycle events (`ca_loaded`, `ca_invalid`, `ca_rotated`).
+### Client-facing TLS is HTTP/1.1 only
 
-### 4) Routing precedence supports shared domains
+The MITM TLS handshake advertises `NextProtos: ["http/1.1"]`. The existing `handleProxy` pipeline is HTTP/1.1. Most clients fall back silently when h2 isn't offered. Upstream connections are independent -- Go's `http.Transport` negotiates h2 with providers automatically where supported.
 
-- Step 1: CONNECT target host (and SNI when available) must be in intercept set.
-- Step 2: resolve provider candidates by domain.
-- Step 3: if multiple providers share a domain, disambiguate using decrypted HTTP path and provider `route_patterns`.
-- Step 4: if unresolved or ambiguous, return stable `400 routing_error` and emit audit metadata (`target_host`, `request_path`, `candidate_providers`, `reason`).
-- Routing source-of-truth remains router-owned config; transports do not participate in routing decisions.
+### CA lifecycle is simple
 
-### 5) Client compatibility is a gated rollout, not an assumption
+A local MITM CA is not a production TLS certificate. It lives on one machine, serves one user, and can have a 10-year validity.
 
-- Treat `HTTPS_PROXY` auto-detection as likely, not guaranteed; maintain a tested compatibility matrix by client/runtime/version.
-- `crabwise wrap -- <cmd>` is the recommended launch path for supported agents.
-- Add diagnostics when proxy is enabled but no CONNECT traffic is seen over a configurable warmup window.
-- Document explicit fallback instructions per client when env-based proxy discovery is not honored.
+- `crabwise init` generates CA if it doesn't exist (idempotent)
+- Daemon startup validates CA exists and parses; if not, fail with "run `crabwise init`"
+- Key file permissions checked at startup (`0600`); fail if wrong
+- Need a new CA: `crabwise init --force` regenerates and prints trust instructions
 
-### 6) Release is gated by failure-mode coverage, not happy-path tests
+No rotation commands, no CA audit events, no config toggles. This gets revisited when team/multi-machine deployments exist.
 
-- Shipping requires a formal failure-mode matrix with pass/fail criteria.
-- Every failure path must assert stable client error shape, correct audit metadata, and no unintended upstream forwarding.
-- Concurrency and resource safety gates (`-race`, leak checks, connection cleanup) are mandatory.
-- Compatibility matrix and blocked-request proof are release blockers, not informational reports.
+### One domain = one provider
+
+Every AI provider has its own API domain (`api.openai.com`, `api.anthropic.com`, etc.). Domain maps to exactly one provider. If someone configures two providers with the same upstream domain, config validation catches it at startup.
+
+`ResolveByDomain(host) -> (provider, error)`. No multi-step disambiguation, no shared-domain path routing.
+
+### Client compatibility is validated by testing, not process
+
+- Does `HTTPS_PROXY` work with Codex? (The client that broke -- this is the acceptance test.)
+- Does it work with `curl`? (Universal sanity check.)
+- If proxy sees zero CONNECT requests after 30s of uptime, log a warning.
+
+Expand the compatibility matrix as users report issues, not upfront.
 
 ## Build Strategy: Evolve, Don't Rewrite
 
-The current proxy code has well-tested internals that the forward proxy reuses directly:
+**Stays as-is (reused directly):**
 
-- `[proxy.go](internal/adapter/proxy/proxy.go)` `handleProxy` -- request normalization, commandment evaluation, audit event building, upstream forwarding (stays as-is, becomes the inner handler)
-- `[streaming.go](internal/adapter/proxy/streaming.go)` -- SSE passthrough (stays as-is)
-- `[mapping.go](internal/adapter/proxy/mapping.go)` -- provider mapping/normalization (stays as-is)
-- `[router.go](internal/adapter/proxy/router.go)` -- provider resolution (extended with domain-based routing)
-- `[openai.go](internal/adapter/proxy/openai.go)` -- OpenAI transport (stays as-is)
-- `[provider.go](internal/adapter/proxy/provider.go)` -- Transport interface, ProviderRuntime (stays as-is)
+- `[proxy.go](internal/adapter/proxy/proxy.go)` `handleProxy` -- the entire request processing pipeline
+- `[streaming.go](internal/adapter/proxy/streaming.go)` -- SSE passthrough
+- `[mapping.go](internal/adapter/proxy/mapping.go)` -- provider request/response normalization
+- `[openai.go](internal/adapter/proxy/openai.go)` -- OpenAI transport
+- `[provider.go](internal/adapter/proxy/provider.go)` -- Transport interface, ProviderRuntime
+- `[cost.go](internal/adapter/proxy/cost.go)` -- cost computation
+- `[redaction.go](internal/adapter/proxy/redaction.go)` -- payload redaction
 
-**New code:**
+**New files:**
 
-- `internal/adapter/proxy/ca.go` -- CA cert generation + ephemeral cert signing
-- `internal/adapter/proxy/connect.go` -- CONNECT handler: hijack, MITM TLS, feed into `handleProxy`
+- `internal/adapter/proxy/ca.go` -- CA cert generation, ephemeral cert signing, bounded cert cache
+- `internal/adapter/proxy/connect.go` -- CONNECT handler: tunnel or MITM based on domain, hijack, TLS, feed into handleProxy
+- `internal/cli/wrap.go` -- `crabwise wrap` command
+- `internal/cli/env.go` -- `crabwise env` command
 
-**Modified code:**
+**Modified files:**
 
-- `internal/adapter/proxy/proxy.go` -- `Start()` detects CONNECT vs regular HTTP
-- `internal/adapter/proxy/router.go` -- add `ResolveByDomain(host)` alongside existing `Resolve(req)`
-- `internal/daemon/config.go` -- CA cert/key paths, CONNECT policy fields, remove reverse-proxy-only fields
+- `internal/adapter/proxy/proxy.go` -- `Start()` routes CONNECT to new handler
+- `internal/adapter/proxy/router.go` -- add `ResolveByDomain(host)`
+- `internal/daemon/config.go` -- CA paths, remove reverse-proxy-only fields, one-domain-one-provider validation
 - `configs/default.yaml` -- updated defaults
-- `internal/cli/root.go` -- register `wrap` and `env` commands
-- `internal/cli/init.go` -- generate/reuse CA cert during init
-- `internal/cli/ca.go` -- explicit CA lifecycle operations (rotate/inspect)
-
-**New CLI commands:**
-
-- `internal/cli/wrap.go` -- `crabwise wrap -- codex` sets `HTTPS_PROXY` + `NODE_EXTRA_CA_CERTS` then execs
-- `internal/cli/env.go` -- `crabwise env` outputs sourceable env vars
+- `internal/cli/root.go` -- register wrap and env commands
+- `internal/cli/init.go` -- CA generation during init
 
 ## Implementation Order
 
-1. **CA generation** (`ca.go`) -- no dependencies, can test in isolation
-2. **CA lifecycle hardening** -- permissions, reuse, corruption behavior, explicit rotate command
-3. **Config update** -- add CA paths, derive intercept domains from provider URLs, add CONNECT policy fields
-4. **Domain router + precedence** -- `ResolveByDomain` plus path disambiguation for shared domains
-5. **ALPN policy lock** -- client-facing HTTP/1.1 only; document deferred h2 edge support
-6. **CONNECT handler** (`connect.go`) -- the core new code; enforce deny-by-default for unknown domains, hijack, MITM, feed into `handleProxy`
-7. **Proxy.Start() refactor** -- route CONNECT to new handler
-8. **`crabwise init` update** -- generate/reuse CA cert and print trust instructions
-9. **`wrap` and `env` commands** -- CLI convenience
-10. **Client compatibility gate** -- matrix validation + no-traffic diagnostics
-11. **Cleanup** -- remove reverse-proxy-only code paths and config
-12. **Tests** -- integration coverage for the new flow
-13. **Failure-mode + release gates** -- enforce matrix pass criteria before merge/release
+1. **CA generation** (`ca.go`) -- standalone, testable in isolation
+2. **Config update** -- CA paths, derive intercept domains, one-domain-one-provider validation
+3. **Domain router** -- `ResolveByDomain` on existing Router
+4. **CONNECT handler** (`connect.go`) -- tunnel unknown, MITM known, feed into handleProxy
+5. **Proxy.Start() refactor** -- route CONNECT to new handler
+6. `**crabwise init` update** -- generate CA, print trust instructions
+7. `**wrap` and `env` commands** -- CLI convenience
+8. **Cleanup** -- remove reverse-proxy-only code
+9. **Tests** -- focused on the invariants that matter
 
-## Failure-Mode and Release Gates
+## Test Invariants
 
-### Failure-Mode Matrix (required)
+The tests that matter for this architecture:
 
-Cover these categories with explicit tests:
-
-- **Routing failures**: unknown CONNECT domain, shared-domain ambiguity, missing/invalid route pattern.
-- **CA failures**: missing cert/key, corrupt key, cert/key mismatch, bad permissions, expired cert.
-- **TLS/protocol failures**: missing SNI, SNI mismatch, ALPN mismatch, h2-only client against h1 edge.
-- **Stream failures**: upstream disconnect mid-SSE, client disconnect mid-SSE, idle timeout, partial frames.
-- **Connection lifecycle**: keep-alive reuse correctness, rapid reconnect churn, concurrent tunnel load.
-- **Cert cache pressure**: high-cardinality hostnames, cache eviction correctness, stale cert avoidance.
-
-### Assertion Contract Per Failure
-
-Each failure-mode test must assert all of:
-
-1. Stable client response contract (`status`, `error.type`, `request_id`).
-2. Audit event emitted with normalized `error_type` and reason metadata.
-3. Upstream call behavior is correct:
-   - blocked/denied failures: **no upstream request attempted**
-   - passthrough failures: upstream attempted exactly as expected.
-4. Process safety: no panic, no deadlock, bounded goroutine/connection growth.
-
-### Non-Functional Gates
-
-- `go test -race` passes for proxy/integration suites.
-- Leak checks pass (goroutine and open-connection deltas return to baseline).
-- Handshake and first-token latency stay within budget under benchmark profile.
-- Memory remains bounded under cert-cache pressure scenarios.
-
-### Security Gates
-
-- Unknown domains are denied by default (`default_connect_policy: deny`).
-- No unrestricted tunnel mode; tunneling only via explicit allowlist.
-- Loopback-only default bind preserved unless user opts into non-loopback.
-- CA key permission checks enforced (`0600` with strict mode).
-
-### Compatibility and Rollout Gates
-
-- Compatibility matrix passes for pinned versions of Codex, Claude Code, curl, Node, and Go clients.
-- `crabwise wrap` path validated end-to-end for supported agents.
-- If proxy is enabled and matrix run shows zero CONNECT traffic, release is blocked until diagnosed.
-- Demonstrate blocked-request invariant with upstream hit counters: blocked request must never reach upstream.
+1. **Blocked requests never reach upstream** -- the core invariant and the reason this project exists
+2. **Unknown domains tunnel through** -- `crabwise wrap` doesn't break non-AI traffic
+3. **Known domains get intercepted** -- MITM handshake succeeds, request is readable, commandments evaluate
+4. **SSE streaming works through MITM** -- no perceptible latency, no data corruption
+5. **CA generation is idempotent** -- init twice doesn't break anything
+6. `**-race` passes** -- no data races in concurrent tunnel/MITM handling
+7. **Goroutine/connection cleanup** -- tunnels and MITM connections don't leak
 
 ## What This Does NOT Solve
 
 - **Tool execution blocking**: `rm -rf` is a local tool execution, not an API call. The proxy intercepts provider traffic only. Log watcher remains the observation surface for tool execution.
-- **Certificate pinning**: extremely rare in AI SDKs, and clients that pin certs typically also ignore base URL overrides, so the reverse proxy wouldn't help either.
-- **Client-edge HTTP/2 termination**: deferred for this milestone; initial MITM edge supports HTTP/1.1 only.
-- **Clients that intentionally ignore proxy settings**: those require explicit per-client launch configuration or are out of scope.
+- **Certificate pinning**: extremely rare in AI SDKs.
+- **Client-edge HTTP/2**: deferred; h1 is sufficient for AI API traffic patterns.
+
