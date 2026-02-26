@@ -328,7 +328,7 @@ func pollStatus(socketPath string) tea.Cmd {
 
 func runStatusTUI(cfg *daemon.Config) error {
 	m := newStatusTUIModel(cfg)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }

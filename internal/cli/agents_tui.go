@@ -190,7 +190,7 @@ func loadAgents(socketPath string) tea.Cmd {
 
 func runAgentsTUI(socketPath string) error {
 	m := newAgentsTUIModel(socketPath)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }
