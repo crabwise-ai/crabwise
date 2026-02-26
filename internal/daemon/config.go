@@ -33,6 +33,13 @@ type Config struct {
 	Commandments CommandmentsConfig `yaml:"commandments"`
 	ToolRegistry ToolRegistryConfig `yaml:"tool_registry"`
 	Cost         CostConfig         `yaml:"cost"`
+	OTel         OTelConfig         `yaml:"otel"`
+}
+
+type OTelConfig struct {
+	Enabled        bool     `yaml:"enabled"`
+	Endpoint       string   `yaml:"endpoint"`
+	ExportInterval Duration `yaml:"export_interval"`
 }
 
 type DaemonConfig struct {

@@ -20,6 +20,7 @@ import (
 
 	"github.com/crabwise-ai/crabwise/internal/audit"
 	"github.com/crabwise-ai/crabwise/internal/classify"
+	crabwiseOtel "github.com/crabwise-ai/crabwise/internal/otel"
 )
 
 type Evaluator interface {
@@ -438,6 +439,21 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	p.appendArgumentMetadata(preflight, meta)
 	p.maybeWriteRawPayload(preflight, body)
+
+	crabwiseOtel.EmitGenAISpan(r.Context(), crabwiseOtel.GenAISpanData{
+		System:        providerName,
+		Operation:     endpointAction(r.URL.Path),
+		RequestModel:  preflight.Model,
+		ResponseModel: normResp.Model,
+		FinishReason:  normResp.FinishReason,
+		InputTokens:   preflight.InputTokens,
+		OutputTokens:  preflight.OutputTokens,
+		CostUSD:       preflight.CostUSD,
+		Outcome:       string(preflight.Outcome),
+		Provider:      providerName,
+		AdapterID:     "proxy",
+	})
+
 	p.emit(preflight)
 }
 

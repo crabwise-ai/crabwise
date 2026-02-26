@@ -22,6 +22,7 @@ func newStartCmd() *cobra.Command {
 			}
 
 			log.SetFlags(log.Ltime | log.Lshortfile)
+			daemon.Version = Version
 			d := daemon.New(cfg)
 			return d.Run(context.Background())
 		},

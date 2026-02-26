@@ -9,11 +9,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/crabwise-ai/crabwise/internal/audit"
 	"github.com/crabwise-ai/crabwise/internal/daemon"
 	"github.com/crabwise-ai/crabwise/internal/ipc"
+)
+
+var (
+	warnStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // orange
+	blockStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // red
 )
 
 type watchConn struct {
@@ -31,6 +37,7 @@ type watchModelDeps struct {
 
 type watchModel struct {
 	feed               []string
+	allEvents          []feedEntry
 	queueDepth         int
 	queueDropped       uint64
 	daemonUptime       string
@@ -40,9 +47,19 @@ type watchModel struct {
 	reconnectAttempts  int
 	fatalErr           error
 
+	filterMode  bool
+	filterInput textinput.Model
+	filterText  string
+
 	client  *ipc.Client
 	scanner *bufio.Scanner
 	deps    watchModelDeps
+}
+
+type feedEntry struct {
+	formatted   string
+	outcome     audit.Outcome
+	searchable  string
 }
 
 type watchStreamLineMsg struct {
@@ -166,10 +183,17 @@ func newWatchModel(deps watchModelDeps) watchModel {
 	}
 
 	now := deps.Now()
+	ti := textinput.New()
+	ti.Placeholder = "filter..."
+	ti.CharLimit = 64
+	ti.Width = 40
+
 	return watchModel{
-		feed:      make([]string, 0, 16),
-		startedAt: now,
-		deps:      deps,
+		feed:        make([]string, 0, 16),
+		allEvents:   make([]feedEntry, 0, 16),
+		startedAt:   now,
+		filterInput: ti,
+		deps:        deps,
 	}
 }
 
@@ -187,9 +211,34 @@ func (m watchModel) Init() tea.Cmd {
 func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.filterMode {
+			switch msg.String() {
+			case "enter":
+				m.filterText = m.filterInput.Value()
+				m.filterMode = false
+				m.filterInput.Blur()
+				m.rebuildFeed()
+				return m, nil
+			case "esc":
+				m.filterText = ""
+				m.filterMode = false
+				m.filterInput.SetValue("")
+				m.filterInput.Blur()
+				m.rebuildFeed()
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.filterInput, cmd = m.filterInput.Update(msg)
+			return m, cmd
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "/":
+			m.filterMode = true
+			m.filterInput.Focus()
+			return m, m.filterInput.Cursor.BlinkCmd()
 		}
 
 	case watchStreamLineMsg:
@@ -283,12 +332,18 @@ func (m watchModel) View() string {
 		uptime,
 		m.triggersLastMinute,
 	)
+	if m.filterText != "" {
+		status += fmt.Sprintf(" | Filter: %s", m.filterText)
+	}
 
 	if len(m.feed) == 0 {
 		m.feed = []string{"(waiting for events...)"}
 	}
 
 	lines := append([]string{title, status, "", "Recent events:"}, m.feed...)
+	if m.filterMode {
+		lines = append(lines, "", m.filterInput.View())
+	}
 	if m.fatalErr != nil {
 		lines = append(lines, "", "FATAL: "+m.fatalErr.Error())
 	}
@@ -346,7 +401,32 @@ func (m *watchModel) recordAuditEvent(evt audit.AuditEvent) {
 	m.triggersLastMinute = len(m.triggerTimes)
 
 	ts := when.Format("15:04:05")
-	m.appendFeed(fmt.Sprintf("%s [%s] %-18s %-10s %s", ts, evt.AgentID, evt.ActionType, evt.Action, truncate(evt.Arguments, 60)))
+	line := fmt.Sprintf("%s [%s] %-18s %-10s %s", ts, evt.AgentID, evt.ActionType, evt.Action, truncate(evt.Arguments, 60))
+
+	// Style and prefix based on outcome
+	switch evt.Outcome {
+	case audit.OutcomeWarned:
+		line = warnStyle.Render("⚠ " + line)
+	case audit.OutcomeBlocked:
+		line = blockStyle.Render("✖ " + line)
+	}
+
+	searchable := strings.ToLower(strings.Join([]string{
+		evt.AgentID,
+		string(evt.ActionType),
+		evt.Action,
+		evt.Arguments,
+		string(evt.Outcome),
+		outcomeAliases(evt.Outcome),
+	}, " "))
+
+	entry := feedEntry{formatted: line, outcome: evt.Outcome, searchable: searchable}
+	m.allEvents = append([]feedEntry{entry}, m.allEvents...)
+	const maxAllEvents = 200
+	if len(m.allEvents) > maxAllEvents {
+		m.allEvents = m.allEvents[:maxAllEvents]
+	}
+	m.rebuildFeed()
 }
 
 func isTriggeredAuditEvent(evt audit.AuditEvent) bool {
@@ -372,6 +452,31 @@ func (m *watchModel) appendFeed(line string) {
 	const maxFeed = 12
 	if len(m.feed) > maxFeed {
 		m.feed = m.feed[:maxFeed]
+	}
+}
+
+func (m *watchModel) rebuildFeed() {
+	m.feed = m.feed[:0]
+	filter := strings.ToLower(m.filterText)
+	for _, entry := range m.allEvents {
+		if filter != "" && !strings.Contains(entry.searchable, filter) {
+			continue
+		}
+		m.feed = append(m.feed, entry.formatted)
+		if len(m.feed) >= 12 {
+			break
+		}
+	}
+}
+
+func outcomeAliases(outcome audit.Outcome) string {
+	switch outcome {
+	case audit.OutcomeBlocked:
+		return "block"
+	case audit.OutcomeWarned:
+		return "warn"
+	default:
+		return ""
 	}
 }
 
