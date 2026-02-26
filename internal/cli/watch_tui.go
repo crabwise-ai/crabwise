@@ -57,8 +57,9 @@ type watchModel struct {
 }
 
 type feedEntry struct {
-	formatted string
-	outcome   audit.Outcome
+	formatted   string
+	outcome     audit.Outcome
+	searchable  string
 }
 
 type watchStreamLineMsg struct {
@@ -410,7 +411,16 @@ func (m *watchModel) recordAuditEvent(evt audit.AuditEvent) {
 		line = blockStyle.Render("✖ " + line)
 	}
 
-	entry := feedEntry{formatted: line, outcome: evt.Outcome}
+	searchable := strings.ToLower(strings.Join([]string{
+		evt.AgentID,
+		string(evt.ActionType),
+		evt.Action,
+		evt.Arguments,
+		string(evt.Outcome),
+		outcomeAliases(evt.Outcome),
+	}, " "))
+
+	entry := feedEntry{formatted: line, outcome: evt.Outcome, searchable: searchable}
 	m.allEvents = append([]feedEntry{entry}, m.allEvents...)
 	const maxAllEvents = 200
 	if len(m.allEvents) > maxAllEvents {
@@ -449,13 +459,24 @@ func (m *watchModel) rebuildFeed() {
 	m.feed = m.feed[:0]
 	filter := strings.ToLower(m.filterText)
 	for _, entry := range m.allEvents {
-		if filter != "" && !strings.Contains(strings.ToLower(entry.formatted), filter) {
+		if filter != "" && !strings.Contains(entry.searchable, filter) {
 			continue
 		}
 		m.feed = append(m.feed, entry.formatted)
 		if len(m.feed) >= 12 {
 			break
 		}
+	}
+}
+
+func outcomeAliases(outcome audit.Outcome) string {
+	switch outcome {
+	case audit.OutcomeBlocked:
+		return "block"
+	case audit.OutcomeWarned:
+		return "warn"
+	default:
+		return ""
 	}
 }
 
