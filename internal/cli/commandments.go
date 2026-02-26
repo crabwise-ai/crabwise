@@ -7,6 +7,7 @@ import (
 	"github.com/crabwise-ai/crabwise/internal/audit"
 	"github.com/crabwise-ai/crabwise/internal/daemon"
 	"github.com/crabwise-ai/crabwise/internal/ipc"
+	"github.com/crabwise-ai/crabwise/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -53,9 +54,41 @@ func newCommandmentsListCmd() *cobra.Command {
 				return nil
 			}
 
-			fmt.Printf("%-32s %-11s %-8s %s\n", "NAME", "ENFORCEMENT", "PRIORITY", "ENABLED")
-			for _, rule := range rules {
-				fmt.Printf("%-32s %-11s %-8d %t\n", rule.Name, rule.Enforcement, rule.Priority, rule.Enabled)
+			if isPlain() {
+				fmt.Printf("%-32s %-11s %-8s %s\n", "NAME", "ENFORCEMENT", "PRIORITY", "ENABLED")
+				for _, rule := range rules {
+					fmt.Printf("%-32s %-11s %-8d %t\n", rule.Name, rule.Enforcement, rule.Priority, rule.Enabled)
+				}
+			} else {
+				fmt.Printf("  %s  %s  %s  %s\n",
+					tui.StyleHeading.Render(fmt.Sprintf("%-32s", "NAME")),
+					tui.StyleHeading.Render(fmt.Sprintf("%-11s", "ENFORCEMENT")),
+					tui.StyleHeading.Render(fmt.Sprintf("%-8s", "PRIORITY")),
+					tui.StyleHeading.Render("ENABLED"),
+				)
+				for _, rule := range rules {
+					var enforcement string
+					switch rule.Enforcement {
+					case "block":
+						enforcement = tui.StyleError.Render(fmt.Sprintf("%-11s", rule.Enforcement))
+					case "warn":
+						enforcement = tui.StyleWarning.Render(fmt.Sprintf("%-11s", rule.Enforcement))
+					default:
+						enforcement = tui.StyleBody.Render(fmt.Sprintf("%-11s", rule.Enforcement))
+					}
+					var enabled string
+					if rule.Enabled {
+						enabled = tui.StyleSuccess.Render("✓")
+					} else {
+						enabled = tui.StyleMuted.Render("○")
+					}
+					fmt.Printf("  %s  %s  %s  %s\n",
+						tui.StyleBody.Render(fmt.Sprintf("%-32s", rule.Name)),
+						enforcement,
+						tui.StyleBody.Render(fmt.Sprintf("%-8d", rule.Priority)),
+						enabled,
+					)
+				}
 			}
 			return nil
 		},
@@ -91,19 +124,41 @@ func newCommandmentsTestCmd() *cobra.Command {
 				return fmt.Errorf("parse result: %w", err)
 			}
 
-			fmt.Printf("Evaluated: %v\n", eval.Evaluated)
-			if len(eval.Triggered) == 0 {
-				fmt.Println("Triggered: []")
-				return nil
-			}
-
-			fmt.Println("Triggered:")
-			for _, tr := range eval.Triggered {
-				fmt.Printf("- %s (%s)", tr.Name, tr.Enforcement)
-				if tr.Message != "" {
-					fmt.Printf(": %s", tr.Message)
+			if isPlain() {
+				fmt.Printf("Evaluated: %v\n", eval.Evaluated)
+				if len(eval.Triggered) == 0 {
+					fmt.Println("Triggered: []")
+					return nil
 				}
-				fmt.Println()
+				fmt.Println("Triggered:")
+				for _, tr := range eval.Triggered {
+					fmt.Printf("- %s (%s)", tr.Name, tr.Enforcement)
+					if tr.Message != "" {
+						fmt.Printf(": %s", tr.Message)
+					}
+					fmt.Println()
+				}
+			} else {
+				fmt.Printf("  %s %s\n", tui.StyleMuted.Render("Evaluated:"), tui.StyleBody.Render(fmt.Sprintf("%v", eval.Evaluated)))
+				if len(eval.Triggered) == 0 {
+					fmt.Printf("  %s %s\n", tui.StyleSuccess.Render("✓"), tui.StyleBody.Render("No blocks triggered"))
+					return nil
+				}
+				fmt.Printf("  %s\n", tui.StyleMuted.Render("Triggered:"))
+				for _, tr := range eval.Triggered {
+					var icon string
+					switch tr.Enforcement {
+					case "block":
+						icon = tui.StyleError.Render("✖")
+					default:
+						icon = tui.StyleWarning.Render("⚠")
+					}
+					line := fmt.Sprintf("  %s %s (%s)", icon, tui.StyleBody.Bold(true).Render(tr.Name), tr.Enforcement)
+					if tr.Message != "" {
+						line += ": " + tui.StyleMuted.Render(tr.Message)
+					}
+					fmt.Println(line)
+				}
 			}
 
 			return nil
@@ -140,7 +195,11 @@ func newCommandmentsReloadCmd() *cobra.Command {
 				return fmt.Errorf("parse result: %w", err)
 			}
 
-			fmt.Printf("Reloaded commandments (%d rules).\n", out.RulesLoaded)
+			if isPlain() {
+				fmt.Printf("Reloaded commandments (%d rules).\n", out.RulesLoaded)
+			} else {
+				fmt.Printf("  %s %s\n", tui.StyleSuccess.Render("✓"), tui.StyleBody.Render(fmt.Sprintf("Loaded %d rules", out.RulesLoaded)))
+			}
 			return nil
 		},
 	}

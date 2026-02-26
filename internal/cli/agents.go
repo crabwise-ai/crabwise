@@ -8,6 +8,7 @@ import (
 	"github.com/crabwise-ai/crabwise/internal/daemon"
 	"github.com/crabwise-ai/crabwise/internal/discovery"
 	"github.com/crabwise-ai/crabwise/internal/ipc"
+	"github.com/crabwise-ai/crabwise/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -44,12 +45,30 @@ func newAgentsCmd() *cobra.Command {
 				return nil
 			}
 
-			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tTYPE\tPID\tSTATUS")
-			for _, a := range agents {
-				fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", a.ID, a.Type, a.PID, a.Status)
+			if isPlain() {
+				w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
+				fmt.Fprintln(w, "ID\tTYPE\tPID\tSTATUS")
+				for _, a := range agents {
+					fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", a.ID, a.Type, a.PID, a.Status)
+				}
+				w.Flush()
+			} else {
+				fmt.Printf("  %s  %s  %s  %s\n",
+					tui.StyleHeading.Render(fmt.Sprintf("%-20s", "ID")),
+					tui.StyleHeading.Render(fmt.Sprintf("%-12s", "TYPE")),
+					tui.StyleHeading.Render(fmt.Sprintf("%-8s", "PID")),
+					tui.StyleHeading.Render("STATUS"),
+				)
+				for _, a := range agents {
+					fmt.Printf("  %s %s  %s  %s  %s\n",
+						tui.StatusIcon(a.Status),
+						tui.StyleBody.Render(fmt.Sprintf("%-20s", a.ID)),
+						tui.StyleMuted.Render(fmt.Sprintf("%-12s", a.Type)),
+						tui.StyleMuted.Render(fmt.Sprintf("%-8d", a.PID)),
+						tui.StyleBody.Render(a.Status),
+					)
+				}
 			}
-			w.Flush()
 
 			return nil
 		},
