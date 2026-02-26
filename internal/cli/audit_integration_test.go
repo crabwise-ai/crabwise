@@ -18,28 +18,20 @@ import (
 )
 
 func TestAuditTriggeredEndToEnd(t *testing.T) {
-	dir := t.TempDir()
-	logDir := filepath.Join(dir, "logs")
-	if err := os.MkdirAll(logDir, 0700); err != nil {
+	paths := newTestRuntimePaths(t)
+	if err := os.MkdirAll(paths.logDir, 0700); err != nil {
 		t.Fatalf("mkdir log dir: %v", err)
 	}
 
-	sessionPath := filepath.Join(logDir, "session-trigger.jsonl")
+	sessionPath := filepath.Join(paths.logDir, "session-trigger.jsonl")
 	line := `{"type":"assistant","sessionId":"sess-001","cwd":"/tmp","message":{"model":"claude-sonnet-4-5-20250929","role":"assistant","content":[{"type":"tool_use","id":"toolu_001","name":"Read","input":{"file_path":"/tmp/.env"}}],"usage":{"input_tokens":100,"output_tokens":10}},"uuid":"uuid-001","timestamp":"2026-02-22T14:00:00.000Z"}`
 	if err := os.WriteFile(sessionPath, []byte(line+"\n"), 0600); err != nil {
 		t.Fatalf("write session log: %v", err)
 	}
 
-	commandmentsPath := filepath.Join(dir, "commandments.yaml")
-	if err := os.WriteFile(commandmentsPath, configs.DefaultCommandmentsYAML, 0600); err != nil {
+	if err := os.WriteFile(paths.commandmentsPath, configs.DefaultCommandmentsYAML, 0600); err != nil {
 		t.Fatalf("write commandments file: %v", err)
 	}
-
-	socketPath := filepath.Join(dir, "crabwise.sock")
-	dbPath := filepath.Join(dir, "crabwise.db")
-	rawPayloadDir := filepath.Join(dir, "raw")
-	pidPath := filepath.Join(dir, "crabwise.pid")
-	cfgPath := filepath.Join(dir, "config.yaml")
 
 	cfgYAML := fmt.Sprintf(`daemon:
   socket_path: %q
@@ -60,12 +52,12 @@ queue:
   flush_interval: 20ms
 commandments:
   file: %q
-`, socketPath, dbPath, rawPayloadDir, pidPath, logDir, commandmentsPath)
-	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0600); err != nil {
+`, paths.socketPath, paths.dbPath, paths.rawPayloadDir, paths.pidPath, paths.logDir, paths.commandmentsPath)
+	if err := os.WriteFile(paths.cfgPath, []byte(cfgYAML), 0600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := daemon.LoadConfig(cfgPath)
+	cfg, err := daemon.LoadConfig(paths.cfgPath)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -88,7 +80,7 @@ commandments:
 		}
 	})
 
-	triggeredEvent, err := waitForTriggeredWarnedEvent(socketPath, 10*time.Second)
+	triggeredEvent, err := waitForTriggeredWarnedEvent(paths.socketPath, 10*time.Second)
 	if err != nil {
 		t.Fatalf("wait for triggered warned event: %v", err)
 	}
@@ -105,7 +97,7 @@ commandments:
 
 	out, err := captureStdout(func() error {
 		cmd := newAuditCmd()
-		cmd.SetArgs([]string{"--config", cfgPath, "--triggered", "--outcome", "warned", "--limit", "10"})
+		cmd.SetArgs([]string{"--config", paths.cfgPath, "--triggered", "--outcome", "warned", "--limit", "10"})
 		return cmd.Execute()
 	})
 	if err != nil {
@@ -121,28 +113,20 @@ commandments:
 }
 
 func TestAuditCodexAgentEndToEnd(t *testing.T) {
-	dir := t.TempDir()
-	logDir := filepath.Join(dir, "logs")
-	if err := os.MkdirAll(logDir, 0700); err != nil {
+	paths := newTestRuntimePaths(t)
+	if err := os.MkdirAll(paths.logDir, 0700); err != nil {
 		t.Fatalf("mkdir log dir: %v", err)
 	}
 
-	sessionPath := filepath.Join(logDir, "rollout-2026-02-24T10-00-00-019c7b92-c543-7ac3-aad5-e8681852a8c5.jsonl")
+	sessionPath := filepath.Join(paths.logDir, "rollout-2026-02-24T10-00-00-019c7b92-c543-7ac3-aad5-e8681852a8c5.jsonl")
 	line := `{"timestamp":"2026-02-24T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","model":"gpt-5.1-codex-mini","content":[{"type":"tool_call","name":"Bash","arguments":{"command":"go test ./..."}}],"usage":{"input_tokens":110,"output_tokens":9}}}`
 	if err := os.WriteFile(sessionPath, []byte(line+"\n"), 0600); err != nil {
 		t.Fatalf("write session log: %v", err)
 	}
 
-	commandmentsPath := filepath.Join(dir, "commandments.yaml")
-	if err := os.WriteFile(commandmentsPath, configs.DefaultCommandmentsYAML, 0600); err != nil {
+	if err := os.WriteFile(paths.commandmentsPath, configs.DefaultCommandmentsYAML, 0600); err != nil {
 		t.Fatalf("write commandments file: %v", err)
 	}
-
-	socketPath := filepath.Join(dir, "crabwise.sock")
-	dbPath := filepath.Join(dir, "crabwise.db")
-	rawPayloadDir := filepath.Join(dir, "raw")
-	pidPath := filepath.Join(dir, "crabwise.pid")
-	cfgPath := filepath.Join(dir, "config.yaml")
 
 	cfgYAML := fmt.Sprintf(`daemon:
   socket_path: %q
@@ -163,12 +147,12 @@ queue:
   flush_interval: 20ms
 commandments:
   file: %q
-`, socketPath, dbPath, rawPayloadDir, pidPath, logDir, commandmentsPath)
-	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0600); err != nil {
+`, paths.socketPath, paths.dbPath, paths.rawPayloadDir, paths.pidPath, paths.logDir, paths.commandmentsPath)
+	if err := os.WriteFile(paths.cfgPath, []byte(cfgYAML), 0600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := daemon.LoadConfig(cfgPath)
+	cfg, err := daemon.LoadConfig(paths.cfgPath)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -191,7 +175,7 @@ commandments:
 		}
 	})
 
-	evt, err := waitForAgentEvent(socketPath, "codex-cli", 10*time.Second)
+	evt, err := waitForAgentEvent(paths.socketPath, "codex-cli", 10*time.Second)
 	if err != nil {
 		t.Fatalf("wait for codex event: %v", err)
 	}
@@ -208,7 +192,7 @@ commandments:
 
 	out, err := captureStdout(func() error {
 		cmd := newAuditCmd()
-		cmd.SetArgs([]string{"--config", cfgPath, "--agent", "codex-cli", "--limit", "10"})
+		cmd.SetArgs([]string{"--config", paths.cfgPath, "--agent", "codex-cli", "--limit", "10"})
 		return cmd.Execute()
 	})
 	if err != nil {
