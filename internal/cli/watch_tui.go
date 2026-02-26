@@ -164,7 +164,7 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.reconnectAttempts >= 1 {
 			m.fatalErr = fmt.Errorf("watch stream disconnected after one reconnect attempt; rerun with `crabwise watch` or use `crabwise watch --text`: %w", msg.Err)
-			return m, nil
+			return m, tea.Quit
 		}
 
 		m.reconnectAttempts++
@@ -176,21 +176,21 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case reconnectMsg:
 		if m.deps.Reconnect == nil {
 			m.fatalErr = errors.New("watch stream disconnected and reconnect is unavailable; rerun with `crabwise watch --text`")
-			return m, nil
+			return m, tea.Quit
 		}
 		return m, func() tea.Msg { return m.deps.Reconnect() }
 
 	case reconnectResultMsg:
 		if msg.Err != nil {
 			m.fatalErr = fmt.Errorf("watch stream reconnect failed; check daemon status and retry, or use `crabwise watch --text`: %w", msg.Err)
-			return m, nil
+			return m, tea.Quit
 		}
 		m.client = msg.Conn.client
 		m.scanner = msg.Conn.scanner
 		m.appendFeed("reconnected")
 		if m.scanner == nil {
 			m.fatalErr = errors.New("watch stream reconnect returned no scanner")
-			return m, nil
+			return m, tea.Quit
 		}
 		return m, readWatchStreamCmd(m.scanner)
 	}

@@ -65,8 +65,11 @@ func TestWatchModel_ReconnectAttemptOnce(t *testing.T) {
 	}
 
 	updated, cmd = next.Update(streamDisconnectedMsg{Err: io.EOF})
-	if cmd != nil {
-		t.Fatalf("expected no cmd after retry exhausted, got %T", cmd)
+	if cmd == nil {
+		t.Fatal("expected quit cmd after retry exhausted")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("expected quit message after retry exhausted, got %T", cmd())
 	}
 	next = updated.(watchModel)
 	if next.fatalErr == nil {
