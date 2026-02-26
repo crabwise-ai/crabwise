@@ -123,7 +123,7 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 - `crabwise status` exposes `unclassified_tool_count` and operators can use it to spot taxonomy drift
 - `crabwise classify` output is deterministic and includes classification provenance
 
-### M2 — Proxy + Block Enforcement (Weeks 3-4) 🔶 IN PROGRESS
+### M2 — Proxy + Block Enforcement (Weeks 3-4) ✅ COMPLETE
 
 **Demo:** Disallowed model request denied before reaching provider; `crabwise audit` shows blocked event
 
@@ -141,14 +141,20 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 | **Declarative mapping engine** | **gjson-based YAML specs normalize payloads to canonical schema** | **✅** |
 | **Strict mode** | **`mapping_strict_mode=true` returns 502 on both request + response mapping failures** | **✅** |
 | **SIGHUP mapping reload** | **Atomic swap of provider runtimes + router on config reload** | **✅ (unplanned)** |
+| **Forward proxy (CONNECT + MITM)** | **HTTP CONNECT interception, selective MITM TLS for provider domains, blind tunnel for unknown domains** | **✅ (unplanned — replaced reverse proxy)** |
+| **CA generation** | **ECDSA P-256 CA cert + ephemeral cert signing, bounded cert cache** | **✅ (unplanned)** |
+| **Domain-based routing** | **`ResolveByDomain(host)` for CONNECT handler, one-domain-one-provider config validation** | **✅ (unplanned)** |
+| **`crabwise wrap`** | **Sets `HTTPS_PROXY`, `NODE_EXTRA_CA_CERTS`, `NO_PROXY`, then execs wrapped command** | **✅ (unplanned)** |
+| **`crabwise env`** | **Prints sourceable proxy env vars (`--shell bash/zsh/fish`)** | **✅ (unplanned)** |
+| **`crabwise init` CA generation** | **Idempotent CA cert generation, `--force` to regenerate, trust instructions** | **✅ (unplanned)** |
 
 **Exit gates:**
-- Proxy added latency: p95 < 20ms *(pending benchmark)*
-- Streaming first-token delta: < 50ms *(pending benchmark)*
-- Blocked requests never forwarded upstream *(pending integration test)*
-- Streaming torture suite passes *(pending — unit tests for SSE pass, full torture suite follow-up)*
-- Queue overflow deterministic and observable *(pending load test)*
-- Egress redaction tests pass; original third-party logs untouched *(partial — unit tests pass, integration follow-up)*
+- Proxy added latency: p95 < 20ms *(deferred to M3 benchmark suite)*
+- Streaming first-token delta: < 50ms *(deferred to M3 benchmark suite)*
+- Blocked requests never forwarded upstream ✅ (`TestConnectMITM_CommandmentBlocks` — verified upstream receives 0 hits)
+- Streaming torture suite passes *(partial — SSE streaming through MITM test passes; full torture suite deferred to M3)*
+- Queue overflow deterministic and observable *(deferred to M3 load test)*
+- Egress redaction tests pass; original third-party logs untouched *(partial — unit tests pass, integration follow-up in M3)*
 
 **Post-M2 changes (beyond original plan):**
 - Transport self-registration via `init()` + `RegisterTransport()`: providers are decoupled from proxy core; adding a provider requires zero changes to `proxy.go`.
@@ -160,6 +166,10 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 - `cost_unknown_model` marker for unpriced models; multi-tool persistence in Arguments JSON.
 - `klauspost/compress/zstd` for raw payload sidecar (pure Go, well-maintained).
 - Bounded egress redaction (max 50 replacements per field).
+- **Forward proxy architecture** replaced reverse proxy. Investigation (`docs/proxy-blocking-investigation.md`) confirmed zero proxy traffic from Codex under reverse proxy model — clients must change their API base URL, which is fragile and bypassable. Forward proxy (HTTP CONNECT + MITM TLS) requires only `HTTPS_PROXY` env var, covers all providers with one setting, and tunnels non-AI traffic transparently.
+- **CA lifecycle**: `crabwise init` generates ECDSA P-256 CA (10-year validity), `LoadCA` validates key file permissions (0600), `CertCache` provides bounded ephemeral cert signing for MITM'd domains.
+- **CONNECT handler**: known provider domains get MITM (TLS handshake with h1-only `NextProtos`, decrypted request fed into existing `handleProxy` pipeline); unknown domains tunnel transparently via bidirectional `io.Copy` with `sync.WaitGroup` cleanup.
+- **CLI convenience**: `crabwise wrap -- <command>` sets `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` (upper and lowercase), `NODE_EXTRA_CA_CERTS`, `NO_PROXY` then `syscall.Exec`s the command. `crabwise env` prints sourceable equivalents.
 
 ### M3 — TUI + Polish + Release (Week 5)
 
@@ -370,6 +380,8 @@ adapters:
     stream_idle_timeout: 120s
     max_request_body: 10485760    # 10MB
     redact_egress_default: false
+    ca_cert: ~/.local/share/crabwise/ca.crt
+    ca_key: ~/.local/share/crabwise/ca.key
     mappings_dir: ~/.config/crabwise/proxy_mappings
     mapping_strict_mode: false
     providers:
@@ -557,8 +569,10 @@ crabwise/
 │   │   │   └── parser_router.go    # Source/type-based parser routing
 │   │   └── proxy/
 │   │       ├── proxy.go            # HTTP proxy server (request lifecycle, policy gate, audit emission)
+│   │       ├── connect.go          # CONNECT handler: tunnel unknown, MITM known, hijack + TLS
+│   │       ├── ca.go               # CA generation, ephemeral cert signing, bounded cert cache
 │   │       ├── provider.go         # Transport interface, factory registry, canonical types
-│   │       ├── router.go           # Provider routing (header > path pattern > default)
+│   │       ├── router.go           # Provider routing (header > path pattern > default) + ResolveByDomain
 │   │       ├── mapping.go          # Declarative gjson-based mapping engine
 │   │       ├── streaming.go        # SSE passthrough with telemetry extraction
 │   │       ├── openai.go           # OpenAI transport v1 (self-registers via init)
@@ -587,10 +601,13 @@ crabwise/
 │   │   └── client.go               # Client for CLI → daemon
 │   ├── cli/
 │   │   ├── root.go                 # Cobra root command
+│   │   ├── init.go                 # Config + CA generation
 │   │   ├── start.go
 │   │   ├── stop.go
 │   │   ├── status.go
 │   │   ├── watch.go                # Text streaming (M0) + Bubble Tea (M3)
+│   │   ├── wrap.go                 # crabwise wrap -- <cmd> (proxy env + exec)
+│   │   ├── env.go                  # crabwise env (print proxy env vars)
 │   │   ├── audit.go
 │   │   ├── classify.go             # Dry-run taxonomy introspection
 │   │   ├── commandments.go
@@ -640,7 +657,7 @@ crabwise/
 2. **Log watcher audit:** Use Claude Code/Codex CLI normally → `crabwise audit` shows tool calls, commands, AI requests with token counts
 3. **Parser safety:** Replay mixed-version JSONL fixtures → unknown records captured via raw_payload, no panics
 4. **Commandment warn:** `protect-credentials` commandment → CC reads `.env` → `crabwise audit --triggered` shows warning
-5. **Proxy block:** `OPENAI_BASE_URL=localhost:9119` → blocked model → denied, logged in audit
+5. **Proxy block:** `crabwise wrap -- codex` → blocked model → denied via HTTP 403, logged in audit
 6. **Streaming torture:** SSE correct under chunking, disconnect, cancel, timeout
 7. **Cost tracking:** `crabwise audit --cost` shows spend by agent/day
 8. **Audit integrity:** `crabwise audit --verify-integrity` validates chain
