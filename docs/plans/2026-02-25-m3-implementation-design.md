@@ -9,6 +9,7 @@ Decision summary:
 - Keep Bubble Tea scope minimal for first pass.
 - Remove OTel from M3 scope.
 - Add daemon-level proxy E2E smoke coverage as a release gate.
+- Keep text-mode watch fallback (`--text`) for headless/CI usage.
 
 ## Recommended Approach
 
@@ -38,6 +39,16 @@ This balances delivery speed with confidence and avoids turning M3 into an open-
 - Interactive TUI filters, scrollback UX, mouse support.
 - Full sustained-load rig (100 events/sec, long-window RSS tracking) as a hard gate.
 
+### Deferred SLO Coverage (Follow-up Track)
+
+The prototype M3 SLO table includes additional release-gate measurements that are not part of the core-gates-first CI profile.
+
+- Deferred to follow-up benchmark track (`M3.1`):
+  - RSS < 80MB under dual-adapter active load
+  - Event loss = 0 under nominal load with overflow metering validation
+  - SQLite batch insert throughput characterization under sustained load
+- M3 CI gate remains authoritative for: commandment eval latency, proxy overhead/first-token delta, and daemon-level proxy allow/block E2E correctness.
+
 ## Architecture and Sequencing
 
 ### Phase A - Gates First
@@ -48,14 +59,19 @@ This balances delivery speed with confidence and avoids turning M3 into an open-
    - proxy round-trip and first-token overhead
 3. Add daemon-level proxy E2E smoke test with deterministic mock upstream.
 
+Measurement note:
+- CI gate uses a reduced, deterministic profile for regression detection.
+- Full benchmark profile from the prototype plan (10 concurrent clients, 4KB/16KB payloads, 10s warmup + 60s measurement) remains the reproducibility profile for follow-up benchmarking, not this first M3 CI gate.
+
 Design intent: validate the highest-risk release behaviors quickly and fail fast in CI.
 
 ### Phase B - Minimal Bubble Tea Watch
 
-1. Replace text watch path with Bubble Tea single-screen model.
+1. Add Bubble Tea single-screen model as default watch view.
 2. Keep presentation read-only and lightweight.
 3. Pull events from `audit.subscribe` and poll `status` periodically.
 4. Compute trigger-rate in-process from streamed events.
+5. Keep existing text stream as explicit fallback via `crabwise watch --text`.
 
 Design intent: hit the M3 demo target with low complexity and high reliability.
 
@@ -98,6 +114,7 @@ Two required paths:
 
 - Fail with hop-specific errors (startup, connect, TLS, forward, audit assertion).
 - Ensure blocked-path assertion includes both upstream zero-hit and blocked audit evidence.
+- Force short runtime paths in tests to avoid Unix socket path-length failures on temp directories.
 
 ### TUI Runtime
 
@@ -112,6 +129,7 @@ M3 sign-off requires:
 2. CI daemon-level proxy E2E smoke is green for both allow and block cases.
 3. Bubble Tea minimal dashboard is functional and stable.
 4. Existing test suites remain green after integration.
+5. Deferred SLO items are tracked explicitly as follow-up work and not treated as implicit pass criteria for this M3 CI gate.
 
 ## Implementation Slices
 
@@ -130,6 +148,12 @@ M3 sign-off requires:
 - Build single-screen watch UI.
 - Wire event stream + status polling + trigger-rate counter.
 - Add one reconnect attempt with short backoff.
+- Preserve text fallback mode via `--text` for non-TTY/headless usage.
+
+### Slice C2 - Deferred SLO Follow-up Stub (M3.1)
+
+- Add tracking issue/plan section for RSS, event-loss, and SQLite sustained-load benchmarks.
+- Do not block M3 core release gate on this slice.
 
 ### Slice C1 - Release Polish
 

@@ -185,12 +185,21 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 | Release artifacts | `commandments_default.yaml`, README, MIT license |
 | Benchmark suite | All SLOs verified under dual-adapter load |
 
+**Execution profile note (2026-02-25):**
+- Current M3 delivery uses a core-gates-first CI profile: commandment/proxy latency gates + daemon-level proxy allow/block E2E smoke + minimal Bubble Tea watch.
+- OTel and advanced watch filtering are explicitly de-scoped from this M3 pass.
+- Sustained-load SLO measurements (RSS/event-loss/SQLite throughput under dual-adapter load) are tracked as follow-up benchmark work.
+
 **Exit gates:**
 - TUI shows queue depth, drop counters, commandment trigger rate
 - RSS < 80MB under dual-adapter active load
 - Binary verification documented in installer
 - All SLOs confirmed by benchmark suite
 - Install script works on fresh Ubuntu + Arch
+
+**Core-gates-first interpretation (current):**
+- Required for M3 CI sign-off now: latency gates (commandment/proxy/first-token), proxy allow+block daemon E2E smoke, Bubble Tea minimal watch correctness.
+- Deferred follow-up gate: sustained-load benchmark confirmation for RSS/event-loss/SQLite throughput.
 
 ---
 
