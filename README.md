@@ -83,17 +83,17 @@ Lists discovered AI agent sessions and their status.
 
 ### `crabwise watch`
 
-`crabwise watch` defaults to a minimal Bubble Tea dashboard for M3. It focuses on release-gate visibility instead of full dashboard interactions:
+`crabwise watch` defaults to a minimal Bubble Tea dashboard. Features:
 
 - live feed of recent audit events
 - daemon/status panel (uptime, queue depth, dropped count)
 - commandment trigger rate panel
+- **event filtering**: press `/` to enter filter mode, type a substring, `Enter` to apply, `Esc` to clear
+- **visual indicators**: ⚠ orange for warned outcomes, ✖ red for blocked
 
-Reconnect behavior is intentionally conservative for this milestone: on stream disconnect, watch performs one reconnect attempt, then exits with an error if reconnect fails.
+Reconnect behavior is intentionally conservative: on stream disconnect, watch performs one reconnect attempt, then exits with an error if reconnect fails.
 
 Use `--text` to force the legacy plain-text stream output mode.
-
-M3 scope note: OpenTelemetry export is intentionally deferred and not required for M3 sign-off.
 
 Text fallback example:
 
@@ -159,6 +159,23 @@ Commandments file path is configured at:
 commandments:
   file: ~/.config/crabwise/commandments.yaml
 ```
+
+### OpenTelemetry Export
+
+Crabwise can export GenAI spans via OTLP HTTP to any OpenTelemetry collector. Disabled by default.
+
+```yaml
+otel:
+  enabled: true
+  endpoint: localhost:4318
+  export_interval: 5s
+```
+
+Spans follow the [GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/) with attributes like `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, and Crabwise extensions (`crabwise.outcome`, `crabwise.cost_usd`).
+
+### Install Script
+
+The install script downloads the release archive and verifies its SHA-256 checksum against `checksums.txt` from the release. If the checksum file is missing, the archive is not found in checksums, or no sha256 tool is available, installation fails (fail-closed). Supports Linux and macOS.
 
 ## Manual cleanup
 
