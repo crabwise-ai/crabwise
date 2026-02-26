@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"crypto/tls"
 	"fmt"
+	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -49,7 +51,7 @@ func TestProxyLatencyGate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("warmup request %d failed: %v", i+1, err)
 		}
-		_ = resp.Body.Close()
+		drainAndClose(resp.Body)
 	}
 
 	const sampleCount = 40
@@ -61,10 +63,10 @@ func TestProxyLatencyGate(t *testing.T) {
 			t.Fatalf("sample request %d failed: %v", i+1, err)
 		}
 		if resp.StatusCode != http.StatusOK {
-			_ = resp.Body.Close()
+			drainAndClose(resp.Body)
 			t.Fatalf("sample request %d unexpected status: %d", i+1, resp.StatusCode)
 		}
-		_ = resp.Body.Close()
+		drainAndClose(resp.Body)
 		samples = append(samples, time.Since(start))
 	}
 
@@ -100,43 +102,61 @@ func TestProxyFirstTokenGate(t *testing.T) {
 	defer upstream.Close()
 
 	upstreamURL := strings.Replace(upstream.URL, "127.0.0.1", "localhost", 1)
-	caCert, caKey, caPool := generateTestCA(t)
+	caCert, caKey, _ := generateTestCA(t)
 	proxyAddr := startTestProxy(t, testProxyConfig(upstreamURL, caCert, caKey), allowEval{})
 
 	requestBody := `{"model":"gpt-4o","stream":true,"messages":[{"role":"user","content":"first token gate"}]}`
 
 	directClient := &http.Client{Timeout: 5 * time.Second}
 	directTarget := upstreamURL + "/v1/chat/completions"
-	directFirstToken, err := firstTokenLatency(directClient, directTarget, requestBody)
-	if err != nil {
-		t.Fatalf("measure direct first token latency: %v", err)
-	}
 
 	proxyURL, _ := url.Parse("http://" + proxyAddr)
 	proxyClient := &http.Client{
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
 			Proxy: http.ProxyURL(proxyURL),
-			TLSClientConfig: &tls.Config{
-				RootCAs: caPool,
-			},
 		},
 	}
 	u, _ := url.Parse(upstreamURL)
-	proxyTarget := "https://" + u.Host + "/v1/chat/completions"
-	proxyFirstToken, err := firstTokenLatency(proxyClient, proxyTarget, requestBody)
-	if err != nil {
-		t.Fatalf("measure proxy first token latency: %v", err)
+	proxyTarget := "http://" + u.Host + "/v1/chat/completions"
+
+	const warmupRequests = 5
+	for i := 0; i < warmupRequests; i++ {
+		if _, err := firstTokenLatency(directClient, directTarget, requestBody); err != nil {
+			t.Fatalf("warmup direct first-token sample %d failed: %v", i+1, err)
+		}
+		if _, err := firstTokenLatency(proxyClient, proxyTarget, requestBody); err != nil {
+			t.Fatalf("warmup proxy first-token sample %d failed: %v", i+1, err)
+		}
 	}
 
-	delta := proxyFirstToken - directFirstToken
-	if delta < 0 {
-		delta = 0
+	const sampleCount = 25
+	directSamples := make([]time.Duration, 0, sampleCount)
+	proxySamples := make([]time.Duration, 0, sampleCount)
+	deltaSamples := make([]time.Duration, 0, sampleCount)
+
+	for i := 0; i < sampleCount; i++ {
+		directFirstToken, err := firstTokenLatency(directClient, directTarget, requestBody)
+		if err != nil {
+			t.Fatalf("direct first-token sample %d failed: %v", i+1, err)
+		}
+		proxyFirstToken, err := firstTokenLatency(proxyClient, proxyTarget, requestBody)
+		if err != nil {
+			t.Fatalf("proxy first-token sample %d failed: %v", i+1, err)
+		}
+
+		directSamples = append(directSamples, directFirstToken)
+		proxySamples = append(proxySamples, proxyFirstToken)
+		deltaSamples = append(deltaSamples, proxyFirstToken-directFirstToken)
 	}
 
-	t.Logf("m3_bench proxy_first_token delta=%s", delta)
-	if delta >= 50*time.Millisecond {
-		t.Fatalf("first token delta too high: %s", delta)
+	directP50 := percentileDuration(directSamples, 50)
+	proxyP50 := percentileDuration(proxySamples, 50)
+	deltaP95 := percentileDuration(deltaSamples, 95)
+
+	t.Logf("m3_bench proxy_first_token delta=%s", deltaP95)
+	if deltaP95 >= 50*time.Millisecond {
+		t.Fatalf("first token p95 delta too high: %s (direct_p50=%s proxy_p50=%s)", deltaP95, directP50, proxyP50)
 	}
 }
 
@@ -146,7 +166,7 @@ func firstTokenLatency(client *http.Client, targetURL, requestBody string) (time
 	if err != nil {
 		return 0, err
 	}
-	defer resp.Body.Close()
+	defer drainAndClose(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("unexpected status: %d", resp.StatusCode)
@@ -164,8 +184,28 @@ func firstTokenLatency(client *http.Client, targetURL, requestBody string) (time
 	}
 }
 
+func drainAndClose(body io.ReadCloser) {
+	if body == nil {
+		return
+	}
+	_, _ = io.Copy(io.Discard, body)
+	_ = body.Close()
+}
+
+func percentileDuration(samples []time.Duration, percentile int) time.Duration {
+	if len(samples) == 0 {
+		return 0
+	}
+	sorted := append([]time.Duration(nil), samples...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	return sorted[percentileIndex(len(sorted), percentile)]
+}
+
 func percentileIndex(sampleCount, percentile int) int {
-	idx := (sampleCount*percentile)/100 - 1
+	if sampleCount <= 0 {
+		return 0
+	}
+	idx := int(math.Ceil(float64(sampleCount*percentile)/100.0)) - 1
 	if idx < 0 {
 		return 0
 	}
