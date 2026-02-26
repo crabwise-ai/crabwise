@@ -256,7 +256,9 @@ func (m *watchModel) recordAuditEvent(evt audit.AuditEvent) {
 		when = m.deps.Now()
 	}
 
-	m.triggerTimes = append(m.triggerTimes, when)
+	if isTriggeredAuditEvent(evt) {
+		m.triggerTimes = append(m.triggerTimes, when)
+	}
 	windowStart := m.deps.Now().Add(-1 * time.Minute)
 	kept := m.triggerTimes[:0]
 	for _, ts := range m.triggerTimes {
@@ -269,6 +271,24 @@ func (m *watchModel) recordAuditEvent(evt audit.AuditEvent) {
 
 	ts := when.Format("15:04:05")
 	m.appendFeed(fmt.Sprintf("%s [%s] %-18s %-10s %s", ts, evt.AgentID, evt.ActionType, evt.Action, truncate(evt.Arguments, 60)))
+}
+
+func isTriggeredAuditEvent(evt audit.AuditEvent) bool {
+	if evt.Outcome == audit.OutcomeWarned || evt.Outcome == audit.OutcomeBlocked {
+		return true
+	}
+
+	raw := strings.TrimSpace(evt.CommandmentsTriggered)
+	if raw == "" {
+		return false
+	}
+
+	var triggered []json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &triggered); err != nil {
+		return false
+	}
+
+	return len(triggered) > 0
 }
 
 func (m *watchModel) appendFeed(line string) {

@@ -10,7 +10,7 @@ import (
 	"github.com/crabwise-ai/crabwise/internal/audit"
 )
 
-func TestWatchModel_UpdatesCountersOnAuditEvent(t *testing.T) {
+func TestWatchModel_TracksTriggersOnlyForTriggeredEvents(t *testing.T) {
 	now := time.Now().UTC()
 	m := newWatchModel(watchModelDeps{Now: func() time.Time { return now }})
 
@@ -20,6 +20,7 @@ func TestWatchModel_UpdatesCountersOnAuditEvent(t *testing.T) {
 		ActionType: audit.ActionToolCall,
 		Action:     "Bash",
 		Arguments:  "{\"command\":\"ls\"}",
+		Outcome:    audit.OutcomeSuccess,
 	}})
 	if cmd != nil {
 		t.Fatalf("expected nil cmd for audit event, got %T", cmd)
@@ -28,6 +29,27 @@ func TestWatchModel_UpdatesCountersOnAuditEvent(t *testing.T) {
 	next := updated.(watchModel)
 	if len(next.feed) != 1 {
 		t.Fatalf("expected 1 feed row, got %d", len(next.feed))
+	}
+	if next.triggersLastMinute != 0 {
+		t.Fatalf("expected trigger count 0 for normal event, got %d", next.triggersLastMinute)
+	}
+
+	updated, cmd = next.Update(auditEventMsg{Event: audit.AuditEvent{
+		Timestamp:             now,
+		AgentID:               "codex",
+		ActionType:            audit.ActionToolCall,
+		Action:                "Bash",
+		Arguments:             "{\"command\":\"ls\"}",
+		Outcome:               audit.OutcomeWarned,
+		CommandmentsTriggered: `[{"id":"protect-credentials","severity":"high","message":"blocked by policy","enforcement":"warn"}]`,
+	}})
+	if cmd != nil {
+		t.Fatalf("expected nil cmd for audit event, got %T", cmd)
+	}
+
+	next = updated.(watchModel)
+	if len(next.feed) != 2 {
+		t.Fatalf("expected 2 feed rows, got %d", len(next.feed))
 	}
 	if next.triggersLastMinute != 1 {
 		t.Fatalf("expected trigger count 1, got %d", next.triggersLastMinute)
