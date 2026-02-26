@@ -68,3 +68,8 @@ cost:
   pricing:
     gpt-4o:      { input: 2.50, output: 10.00 }
     gpt-4o-mini: { input: 0.15, output: 0.60 }
+
+otel:
+  enabled: false
+  endpoint: localhost:4318
+  export_interval: 5s
