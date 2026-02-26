@@ -82,6 +82,7 @@ func TestWatchModel_StatusPollUpdatesStrip(t *testing.T) {
 	// Status hasn't been applied yet (tick schedules the poll)
 	// Execute the poll result
 	updated, _ = next.Update(statusResultMsg{
+		OK:           true,
 		QueueDepth:   7,
 		QueueDropped: 42,
 		Uptime:       "5m30s",
@@ -102,6 +103,34 @@ func TestWatchModel_StatusPollUpdatesStrip(t *testing.T) {
 	view := next.View()
 	if !strings.Contains(view, "5m30s") {
 		t.Fatalf("expected daemon uptime in view, got: %s", view)
+	}
+}
+
+func TestWatchModel_StatusPollFailurePreservesMetrics(t *testing.T) {
+	now := time.Now().UTC()
+	m := newWatchModel(watchModelDeps{Now: func() time.Time { return now }})
+
+	// Apply a successful status first
+	updated, _ := m.Update(statusResultMsg{
+		OK:           true,
+		QueueDepth:   5,
+		QueueDropped: 10,
+		Uptime:       "2m0s",
+	})
+	next := updated.(watchModel)
+
+	// Now simulate a failed poll (OK: false)
+	updated, _ = next.Update(statusResultMsg{OK: false})
+	next = updated.(watchModel)
+
+	if next.queueDepth != 5 {
+		t.Fatalf("expected queue depth preserved at 5, got %d", next.queueDepth)
+	}
+	if next.queueDropped != 10 {
+		t.Fatalf("expected queue dropped preserved at 10, got %d", next.queueDropped)
+	}
+	if next.daemonUptime != "2m0s" {
+		t.Fatalf("expected daemon uptime preserved at 2m0s, got %q", next.daemonUptime)
 	}
 }
 

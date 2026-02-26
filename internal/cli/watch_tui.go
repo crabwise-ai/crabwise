@@ -63,6 +63,7 @@ type reconnectResultMsg struct {
 type statusTickMsg struct{}
 
 type statusResultMsg struct {
+	OK           bool
 	QueueDepth   int
 	QueueDropped uint64
 	Uptime       string
@@ -71,13 +72,13 @@ type statusResultMsg struct {
 func pollDaemonStatus(socketPath string) tea.Msg {
 	client, err := ipc.Dial(socketPath)
 	if err != nil {
-		return statusResultMsg{}
+		return statusResultMsg{OK: false}
 	}
 	defer client.Close()
 
 	result, err := client.Call("status", nil)
 	if err != nil {
-		return statusResultMsg{}
+		return statusResultMsg{OK: false}
 	}
 
 	var s struct {
@@ -86,10 +87,11 @@ func pollDaemonStatus(socketPath string) tea.Msg {
 		Uptime       string `json:"uptime"`
 	}
 	if err := json.Unmarshal(result, &s); err != nil {
-		return statusResultMsg{}
+		return statusResultMsg{OK: false}
 	}
 
 	return statusResultMsg{
+		OK:           true,
 		QueueDepth:   s.QueueDepth,
 		QueueDropped: s.QueueDropped,
 		Uptime:       s.Uptime,
@@ -215,10 +217,12 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case statusResultMsg:
-		m.queueDepth = msg.QueueDepth
-		m.queueDropped = msg.QueueDropped
-		if msg.Uptime != "" {
-			m.daemonUptime = msg.Uptime
+		if msg.OK {
+			m.queueDepth = msg.QueueDepth
+			m.queueDropped = msg.QueueDropped
+			if msg.Uptime != "" {
+				m.daemonUptime = msg.Uptime
+			}
 		}
 		return m, nil
 
