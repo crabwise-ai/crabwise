@@ -132,7 +132,7 @@ func (m statusTUIModel) View() string {
 	b.WriteString("\n\n")
 
 	if !m.connected {
-		b.WriteString(fmt.Sprintf("  %s %s\n", tui.StatusIcon("stopped"), tui.StyleBody.Render("Daemon not running")))
+		fmt.Fprintf(&b, "  %s %s\n", tui.StatusIcon("stopped"), tui.StyleBody.Render("Daemon not running"))
 		b.WriteString("\n")
 		b.WriteString(tui.RenderStatusBar("r retry  q quit", "", w))
 		return b.String()
@@ -148,43 +148,43 @@ func (m statusTUIModel) View() string {
 	if m.agents != nil {
 		agentsStr = fmt.Sprintf("Agents: %v", m.agents)
 	}
-	b.WriteString(fmt.Sprintf("  %s %s   %s\n",
+	fmt.Fprintf(&b, "  %s %s   %s\n",
 		tui.StatusIcon(daemonStatus),
 		padRight(tui.StyleBody.Render("Daemon"), tui.StyleMuted.Render("running"), 30),
 		tui.StyleMuted.Render(uptimeStr),
-	))
+	)
 
 	// Log watcher
 	if m.logWatcherEnabled {
-		b.WriteString(fmt.Sprintf("  %s %s   %s\n",
+		fmt.Fprintf(&b, "  %s %s   %s\n",
 			tui.StatusIcon("active"),
 			padRight(tui.StyleBody.Render("Log watcher"), tui.StyleMuted.Render("active"), 30),
 			tui.StyleMuted.Render(agentsStr),
-		))
+		)
 	}
 
 	// Proxy
 	if m.proxyReqs != nil {
 		proxyStatus := m.proxyListen
 		reqsStr := fmt.Sprintf("Reqs: %v", m.proxyReqs)
-		b.WriteString(fmt.Sprintf("  %s %s   %s\n",
+		fmt.Fprintf(&b, "  %s %s   %s\n",
 			tui.StatusIcon("running"),
 			padRight(tui.StyleBody.Render("Proxy"), tui.StyleMuted.Render(proxyStatus), 30),
 			tui.StyleMuted.Render(reqsStr),
-		))
+		)
 	}
 
 	// OTel
 	if m.otelEnabled {
-		b.WriteString(fmt.Sprintf("  %s %s\n",
+		fmt.Fprintf(&b, "  %s %s\n",
 			tui.StatusIcon("active"),
 			padRight(tui.StyleBody.Render("OTel"), tui.StyleMuted.Render("enabled"), 30),
-		))
+		)
 	} else {
-		b.WriteString(fmt.Sprintf("  %s %s\n",
+		fmt.Fprintf(&b, "  %s %s\n",
 			tui.StatusIcon("stopped"),
 			padRight(tui.StyleBody.Render("OTel"), tui.StyleMuted.Render("disabled"), 30),
-		))
+		)
 	}
 
 	b.WriteString("\n")
@@ -192,12 +192,12 @@ func (m statusTUIModel) View() string {
 	// Queue section
 	b.WriteString(sectionDivider("Queue", w))
 	b.WriteString("\n\n")
-	b.WriteString(fmt.Sprintf("  %s %s            %s %s\n",
+	fmt.Fprintf(&b, "  %s %s            %s %s\n",
 		tui.StyleMuted.Render("Depth:"),
 		tui.StyleBody.Render(fmt.Sprintf("%d / 10,000", m.queueDepth)),
 		tui.StyleMuted.Render("Dropped:"),
 		tui.StyleBody.Render(fmt.Sprintf("%d", m.queueDropped)),
-	))
+	)
 
 	b.WriteString("\n")
 
@@ -205,20 +205,20 @@ func (m statusTUIModel) View() string {
 	if m.proxyReqs != nil {
 		b.WriteString(sectionDivider("Proxy", w))
 		b.WriteString("\n\n")
-		b.WriteString(fmt.Sprintf("  %s %s      %s %s      %s %s\n",
+		fmt.Fprintf(&b, "  %s %s      %s %s      %s %s\n",
 			tui.StyleMuted.Render("Total:"),
 			tui.StyleBody.Render(fmt.Sprintf("%v", m.proxyReqs)),
 			tui.StyleMuted.Render("Blocked:"),
 			tui.StyleBody.Render(fmt.Sprintf("%v", m.proxyBlocked)),
 			tui.StyleMuted.Render("Errors:"),
 			tui.StyleBody.Render(fmt.Sprintf("%v", m.proxyErrors)),
-		))
-		b.WriteString(fmt.Sprintf("  %s %s        %s %s\n",
+		)
+		fmt.Fprintf(&b, "  %s %s        %s %s\n",
 			tui.StyleMuted.Render("Degraded:"),
 			tui.StyleBody.Render(fmt.Sprintf("%v", m.mappingDegraded)),
 			tui.StyleMuted.Render("Unclassified:"),
 			tui.StyleBody.Render(fmt.Sprintf("%v", m.unclassifiedTools)),
-		))
+		)
 		b.WriteString("\n")
 	}
 
