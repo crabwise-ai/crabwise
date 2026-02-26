@@ -189,12 +189,12 @@ func newWatchModel(deps watchModelDeps) watchModel {
 	ti.Width = 40
 
 	return watchModel{
-		feed:      make([]string, 0, 16),
-		allEvents: make([]feedEntry, 0, 16),
-		startedAt: now,
-		width:     80,
+		feed:        make([]string, 0, 16),
+		allEvents:   make([]feedEntry, 0, 16),
+		startedAt:   now,
+		width:       80,
 		filterInput: ti,
-		deps:      deps,
+		deps:        deps,
 	}
 }
 
@@ -432,12 +432,12 @@ func (m *watchModel) handleStreamLine(line []byte) {
 }
 
 var (
-	tsStyle     = lipgloss.NewStyle().Foreground(tui.ColorDriftGray)
-	agentStyle  = lipgloss.NewStyle().Foreground(tui.ColorWarmGold)
-	bodyStyle   = lipgloss.NewStyle().Foreground(tui.ColorShellWhite)
-	argStyle    = lipgloss.NewStyle().Foreground(tui.ColorDriftGray)
-	warnLine    = lipgloss.NewStyle().Foreground(tui.ColorCrabOrange)
-	blockLine   = lipgloss.NewStyle().Foreground(tui.ColorCoralRed)
+	tsStyle    = lipgloss.NewStyle().Foreground(tui.ColorDriftGray)
+	agentStyle = lipgloss.NewStyle().Foreground(tui.ColorWarmGold)
+	bodyStyle  = lipgloss.NewStyle().Foreground(tui.ColorShellWhite)
+	argStyle   = lipgloss.NewStyle().Foreground(tui.ColorDriftGray)
+	warnLine   = lipgloss.NewStyle().Foreground(tui.ColorCrabOrange)
+	blockLine  = lipgloss.NewStyle().Foreground(tui.ColorCoralRed)
 )
 
 func (m *watchModel) recordAuditEvent(evt audit.AuditEvent) {
@@ -601,4 +601,3 @@ func readWatchStreamCmd(scanner *bufio.Scanner) tea.Cmd {
 type auditEventMsg struct {
 	Event audit.AuditEvent
 }
-

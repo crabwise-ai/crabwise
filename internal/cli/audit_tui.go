@@ -22,9 +22,9 @@ type auditEventsLoadedMsg struct {
 }
 
 type auditCostLoadedMsg struct {
-	rows     []audit.CostSummaryRow
+	rows      []audit.CostSummaryRow
 	totalCost float64
-	err      error
+	err       error
 }
 
 type auditVerifyResultMsg struct {
@@ -35,26 +35,26 @@ type auditVerifyResultMsg struct {
 }
 
 type auditTUIModel struct {
-	socketPath  string
-	width       int
-	height      int
-	mode        string // "events" or "cost"
+	socketPath string
+	width      int
+	height     int
+	mode       string // "events" or "cost"
 
 	// Event mode fields
-	table       table.Model
-	events      []*audit.AuditEvent
-	total       int
-	page        int
-	pageSize    int
-	totalPages  int
+	table        table.Model
+	events       []*audit.AuditEvent
+	total        int
+	page         int
+	pageSize     int
+	totalPages   int
 	filterActive bool
-	filterInput textinput.Model
-	filterText  string // applied filter
+	filterInput  textinput.Model
+	filterText   string // applied filter
 
 	// Cost mode fields
-	costTable   table.Model
-	costRows    []audit.CostSummaryRow
-	totalCost   float64
+	costTable table.Model
+	costRows  []audit.CostSummaryRow
+	totalCost float64
 
 	// Verification fields
 	verifying    bool
