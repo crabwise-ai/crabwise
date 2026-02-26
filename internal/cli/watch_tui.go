@@ -15,11 +15,7 @@ import (
 	"github.com/crabwise-ai/crabwise/internal/audit"
 	"github.com/crabwise-ai/crabwise/internal/daemon"
 	"github.com/crabwise-ai/crabwise/internal/ipc"
-)
-
-var (
-	warnStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // orange
-	blockStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // red
+	"github.com/crabwise-ai/crabwise/internal/tui"
 )
 
 type watchConn struct {
@@ -47,6 +43,9 @@ type watchModel struct {
 	reconnectAttempts  int
 	fatalErr           error
 
+	connected bool
+	width     int
+
 	filterMode  bool
 	filterInput textinput.Model
 	filterText  string
@@ -57,9 +56,9 @@ type watchModel struct {
 }
 
 type feedEntry struct {
-	formatted   string
-	outcome     audit.Outcome
-	searchable  string
+	formatted  string
+	outcome    audit.Outcome
+	searchable string
 }
 
 type watchStreamLineMsg struct {
@@ -138,6 +137,7 @@ func runWatchTUI(cfg *daemon.Config) error {
 	})
 	m.client = conn.client
 	m.scanner = conn.scanner
+	m.connected = true
 
 	program := tea.NewProgram(m)
 	finalModel, err := program.Run()
@@ -189,11 +189,12 @@ func newWatchModel(deps watchModelDeps) watchModel {
 	ti.Width = 40
 
 	return watchModel{
-		feed:        make([]string, 0, 16),
-		allEvents:   make([]feedEntry, 0, 16),
-		startedAt:   now,
+		feed:      make([]string, 0, 16),
+		allEvents: make([]feedEntry, 0, 16),
+		startedAt: now,
+		width:     80,
 		filterInput: ti,
-		deps:        deps,
+		deps:      deps,
 	}
 }
 
@@ -210,6 +211,13 @@ func (m watchModel) Init() tea.Cmd {
 
 func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		if m.width < 40 {
+			m.width = 40
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		if m.filterMode {
 			switch msg.String() {
@@ -281,6 +289,7 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.client = nil
 		}
 		m.scanner = nil
+		m.connected = false
 		m.appendFeed(fmt.Sprintf("stream disconnected: %v", msg.Err))
 
 		if m.reconnectAttempts >= 1 {
@@ -308,6 +317,7 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.client = msg.Conn.client
 		m.scanner = msg.Conn.scanner
+		m.connected = true
 		m.appendFeed("reconnected")
 		if m.scanner == nil {
 			m.fatalErr = errors.New("watch stream reconnect returned no scanner")
@@ -320,36 +330,76 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m watchModel) View() string {
-	title := lipgloss.NewStyle().Bold(true).Render("Crabwise Watch")
+	var lines []string
+
+	// Banner area: crab art on left, Watch title + connection on right
+	connIndicator := m.connectionIndicator()
+	bannerRight := []string{
+		tui.StyleHeading.Render("Watch") + strings.Repeat(" ", max(1, m.width-lipgloss.Width(tui.StyleHeading.Render("Watch"))-len(tui.CrabArt[0])-3-lipgloss.Width(connIndicator))) + connIndicator,
+		tui.StyleDivider(27),
+	}
+	// Status strip values
 	uptime := m.daemonUptime
 	if uptime == "" {
-		uptime = m.deps.Now().Sub(m.startedAt).Round(time.Second).String()
+		uptime = tui.FormatDuration(m.deps.Now().Sub(m.startedAt))
 	}
-	status := fmt.Sprintf(
-		"queue depth: %d | dropped: %d | uptime: %s | triggers/min: %d",
-		m.queueDepth,
-		m.queueDropped,
-		uptime,
-		m.triggersLastMinute,
-	)
-	if m.filterText != "" {
-		status += fmt.Sprintf(" | Filter: %s", m.filterText)
+	statusLine := tui.StyleMuted.Render("Queue: ") + tui.StyleBody.Render(fmt.Sprintf("%d", m.queueDepth)) +
+		tui.StyleMuted.Render("  Dropped: ") + tui.StyleBody.Render(fmt.Sprintf("%d", m.queueDropped)) +
+		tui.StyleMuted.Render("  Triggers/min: ") + tui.StyleBody.Render(fmt.Sprintf("%d", m.triggersLastMinute))
+	uptimeLine := tui.StyleMuted.Render("Uptime: ") + tui.StyleBody.Render(uptime)
+	if m.filterText != "" && !m.filterMode {
+		uptimeLine += tui.StyleMuted.Render("  Filter: ") + tui.StyleBody.Render(m.filterText)
+	}
+	bannerRight = append(bannerRight, statusLine, uptimeLine)
+
+	artStyle := lipgloss.NewStyle().Foreground(tui.ColorCrabOrange)
+	for i, art := range tui.CrabArt {
+		styled := artStyle.Render(art)
+		right := ""
+		if i < len(bannerRight) {
+			right = bannerRight[i]
+		}
+		lines = append(lines, styled+"   "+right)
 	}
 
+	// Divider
+	lines = append(lines, "")
+	lines = append(lines, tui.StyleDivider(m.width))
+
+	// Event feed
 	if len(m.feed) == 0 {
-		m.feed = []string{"(waiting for events...)"}
+		lines = append(lines, tui.StyleMuted.Render("  (waiting for events...)"))
+	} else {
+		lines = append(lines, m.feed...)
 	}
 
-	lines := append([]string{title, status, "", "Recent events:"}, m.feed...)
+	// Filter bar
 	if m.filterMode {
-		lines = append(lines, "", m.filterInput.View())
+		lines = append(lines, "")
+		lines = append(lines, m.filterInput.View())
 	}
+
+	// Fatal error
 	if m.fatalErr != nil {
-		lines = append(lines, "", "FATAL: "+m.fatalErr.Error())
+		lines = append(lines, "")
+		lines = append(lines, tui.StyleError.Render("FATAL: "+m.fatalErr.Error()))
 	}
-	lines = append(lines, "", "Press q to quit")
+
+	// Key help
+	lines = append(lines, "")
+	lines = append(lines, tui.StyleMuted.Render("  / filter  esc clear  q quit"))
 
 	return strings.Join(lines, "\n")
+}
+
+func (m watchModel) connectionIndicator() string {
+	if m.connected {
+		return lipgloss.NewStyle().Foreground(tui.ColorSeafoam).Render("◉ connected")
+	}
+	if m.reconnectAttempts > 0 && m.fatalErr == nil {
+		return lipgloss.NewStyle().Foreground(tui.ColorWarmGold).Render("○ reconnecting")
+	}
+	return lipgloss.NewStyle().Foreground(tui.ColorCoralRed).Render("✖ disconnected")
 }
 
 func (m *watchModel) handleStreamLine(line []byte) {
@@ -381,6 +431,15 @@ func (m *watchModel) handleStreamLine(line []byte) {
 	}
 }
 
+var (
+	tsStyle     = lipgloss.NewStyle().Foreground(tui.ColorDriftGray)
+	agentStyle  = lipgloss.NewStyle().Foreground(tui.ColorWarmGold)
+	bodyStyle   = lipgloss.NewStyle().Foreground(tui.ColorShellWhite)
+	argStyle    = lipgloss.NewStyle().Foreground(tui.ColorDriftGray)
+	warnLine    = lipgloss.NewStyle().Foreground(tui.ColorCrabOrange)
+	blockLine   = lipgloss.NewStyle().Foreground(tui.ColorCoralRed)
+)
+
 func (m *watchModel) recordAuditEvent(evt audit.AuditEvent) {
 	when := evt.Timestamp
 	if when.IsZero() {
@@ -400,16 +459,36 @@ func (m *watchModel) recordAuditEvent(evt audit.AuditEvent) {
 	m.triggerTimes = kept
 	m.triggersLastMinute = len(m.triggerTimes)
 
-	ts := when.Format("15:04:05")
-	line := fmt.Sprintf("%s [%s] %-18s %-10s %s", ts, evt.AgentID, evt.ActionType, evt.Action, truncate(evt.Arguments, 60))
+	ts := tui.FormatTimestamp(when)
+	args := tui.Truncate(evt.Arguments, 50)
 
-	// Style and prefix based on outcome
+	// Build styled line parts
+	prefix := "  "
+	line := tsStyle.Render(ts) + " " +
+		agentStyle.Render("["+evt.AgentID+"]") + " " +
+		bodyStyle.Render(fmt.Sprintf("%-18s", string(evt.ActionType))) + " " +
+		bodyStyle.Render(fmt.Sprintf("%-10s", evt.Action))
+
+	if args != "" {
+		line += " " + argStyle.Render(args)
+	}
+
+	if evt.ActionType == audit.ActionAIRequest && evt.CostUSD > 0 {
+		line += " " + argStyle.Render("("+tui.FormatCost(evt.CostUSD)+")")
+	}
+
 	switch evt.Outcome {
 	case audit.OutcomeWarned:
-		line = warnStyle.Render("⚠ " + line)
+		prefix = tui.StatusIcon("warned") + " "
+		line = warnLine.Render(ts+" ["+evt.AgentID+"] "+fmt.Sprintf("%-18s", string(evt.ActionType))+" "+fmt.Sprintf("%-10s", evt.Action)) +
+			warnLineDetail(args, evt)
 	case audit.OutcomeBlocked:
-		line = blockStyle.Render("✖ " + line)
+		prefix = tui.StatusIcon("blocked") + " "
+		line = blockLine.Render(ts+" ["+evt.AgentID+"] "+fmt.Sprintf("%-18s", string(evt.ActionType))+" "+fmt.Sprintf("%-10s", evt.Action)) +
+			blockLineDetail(args, evt)
 	}
+
+	formatted := prefix + line
 
 	searchable := strings.ToLower(strings.Join([]string{
 		evt.AgentID,
@@ -420,13 +499,35 @@ func (m *watchModel) recordAuditEvent(evt audit.AuditEvent) {
 		outcomeAliases(evt.Outcome),
 	}, " "))
 
-	entry := feedEntry{formatted: line, outcome: evt.Outcome, searchable: searchable}
+	entry := feedEntry{formatted: formatted, outcome: evt.Outcome, searchable: searchable}
 	m.allEvents = append([]feedEntry{entry}, m.allEvents...)
 	const maxAllEvents = 200
 	if len(m.allEvents) > maxAllEvents {
 		m.allEvents = m.allEvents[:maxAllEvents]
 	}
 	m.rebuildFeed()
+}
+
+func warnLineDetail(args string, evt audit.AuditEvent) string {
+	detail := ""
+	if args != "" {
+		detail += " " + warnLine.Render(args)
+	}
+	if evt.ActionType == audit.ActionAIRequest && evt.CostUSD > 0 {
+		detail += " " + warnLine.Render("("+tui.FormatCost(evt.CostUSD)+")")
+	}
+	return detail
+}
+
+func blockLineDetail(args string, evt audit.AuditEvent) string {
+	detail := ""
+	if args != "" {
+		detail += " " + blockLine.Render(args)
+	}
+	if evt.ActionType == audit.ActionAIRequest && evt.CostUSD > 0 {
+		detail += " " + blockLine.Render("("+tui.FormatCost(evt.CostUSD)+")")
+	}
+	return detail
 }
 
 func isTriggeredAuditEvent(evt audit.AuditEvent) bool {
@@ -500,3 +601,4 @@ func readWatchStreamCmd(scanner *bufio.Scanner) tea.Cmd {
 type auditEventMsg struct {
 	Event audit.AuditEvent
 }
+
