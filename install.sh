@@ -9,7 +9,8 @@ INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 case "$OS" in
   linux) ;;
-  *) echo "error: unsupported OS: $OS (linux only)" >&2; exit 1 ;;
+  darwin) ;;
+  *) echo "error: unsupported OS: $OS" >&2; exit 1 ;;
 esac
 
 # detect arch
@@ -42,6 +43,37 @@ TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
 curl -sSfL "$URL" -o "$TMPDIR/$ARCHIVE"
+
+# checksum verification (fail-closed)
+CHECKSUMS_URL="https://github.com/$REPO/releases/download/$TAG/checksums.txt"
+if ! curl -sSfL "$CHECKSUMS_URL" -o "$TMPDIR/checksums.txt"; then
+  echo "error: could not download checksums.txt" >&2
+  exit 1
+fi
+
+EXPECTED=$(grep -F "$ARCHIVE" "$TMPDIR/checksums.txt" | awk '{print $1}')
+if [ -z "$EXPECTED" ]; then
+  echo "error: checksum not found for $ARCHIVE in checksums.txt" >&2
+  exit 1
+fi
+
+if command -v sha256sum >/dev/null 2>&1; then
+  ACTUAL=$(sha256sum "$TMPDIR/$ARCHIVE" | awk '{print $1}')
+elif command -v shasum >/dev/null 2>&1; then
+  ACTUAL=$(shasum -a 256 "$TMPDIR/$ARCHIVE" | awk '{print $1}')
+else
+  echo "error: no sha256 tool found, cannot verify checksum" >&2
+  exit 1
+fi
+
+if [ "$ACTUAL" != "$EXPECTED" ]; then
+  echo "error: checksum mismatch for $ARCHIVE" >&2
+  echo "  expected: $EXPECTED" >&2
+  echo "  actual:   $ACTUAL" >&2
+  exit 1
+fi
+echo "checksum verified."
+
 tar xzf "$TMPDIR/$ARCHIVE" -C "$TMPDIR"
 
 if [ -w "$INSTALL_DIR" ]; then
