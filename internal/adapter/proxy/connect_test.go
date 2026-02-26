@@ -421,8 +421,8 @@ func TestConnectMITM_SSEStreaming(t *testing.T) {
 
 	u, _ := url.Parse(upstreamURL)
 	target := "https://" + u.Host + "/v1/chat/completions"
-	resp, err := client.Post(target, "application/json",
-		strings.NewReader(`{"model":"gpt-4o","stream":true,"messages":[{"role":"user","content":"hi"}]}`))
+	// CI occasionally sees a one-off transport reset on first connect; retry transient errors.
+	resp, _, err := timedPostWithRetry(client, target, "application/json", `{"model":"gpt-4o","stream":true,"messages":[{"role":"user","content":"hi"}]}`, 3)
 	if err != nil {
 		t.Fatalf("SSE streaming request: %v", err)
 	}
