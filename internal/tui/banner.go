@@ -29,10 +29,10 @@ type bannerTickMsg struct{}
 
 // BannerModel implements tea.Model for the animated crab banner.
 type BannerModel struct {
-	version  string
-	pos      int // wave front position (in runes across a line)
-	maxPos   int // rune width of the widest art line + wave width
-	done     bool
+	version string
+	pos     int // wave front position (in runes across a line)
+	maxPos  int // rune width of the widest art line + wave width
+	done    bool
 }
 
 // NewBannerModel creates a new animated crab banner.

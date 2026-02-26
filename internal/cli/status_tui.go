@@ -17,21 +17,21 @@ const defaultPollInterval = 3 * time.Second
 
 // statusPollMsg carries the result of an IPC status poll.
 type statusPollMsg struct {
-	connected          bool
-	uptime             string
-	pid                interface{}
-	agents             interface{}
-	queueDepth         int
-	queueDropped       uint64
-	proxyReqs          interface{}
-	proxyBlocked       interface{}
-	proxyErrors        interface{}
-	mappingDegraded    interface{}
-	unclassifiedTools  interface{}
-	otelEnabled        bool
-	proxyListen        string
-	logWatcherEnabled  bool
-	err                error
+	connected         bool
+	uptime            string
+	pid               interface{}
+	agents            interface{}
+	queueDepth        int
+	queueDropped      uint64
+	proxyReqs         interface{}
+	proxyBlocked      interface{}
+	proxyErrors       interface{}
+	mappingDegraded   interface{}
+	unclassifiedTools interface{}
+	otelEnabled       bool
+	proxyListen       string
+	logWatcherEnabled bool
+	err               error
 }
 
 // statusTickMsg triggers the next poll cycle.
