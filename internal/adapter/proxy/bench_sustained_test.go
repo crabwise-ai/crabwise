@@ -30,7 +30,7 @@ func TestProxySustainedLoad(t *testing.T) {
 
 	upstreamURL := strings.Replace(upstream.URL, "127.0.0.1", "localhost", 1)
 	caCert, caKey, caPool := generateTestCA(t)
-	proxyAddr := startTestProxy(t, testProxyConfig(upstreamURL, caCert, caKey), allowEval{})
+	proxyAddr := startTestProxyWithEvents(t, testProxyConfig(upstreamURL, caCert, caKey), allowEval{}, nil)
 
 	proxyURL, _ := url.Parse("http://" + proxyAddr)
 	u, _ := url.Parse(upstreamURL)

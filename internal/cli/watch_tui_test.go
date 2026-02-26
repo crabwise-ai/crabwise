@@ -183,6 +183,66 @@ func TestWatchModel_FilterMatchesEvents(t *testing.T) {
 	}
 }
 
+func TestWatchModel_FilterMatchesOutcomeKeywords(t *testing.T) {
+	now := time.Now().UTC()
+	m := newWatchModel(watchModelDeps{Now: func() time.Time { return now }})
+
+	updated, _ := m.Update(auditEventMsg{Event: audit.AuditEvent{
+		Timestamp:  now,
+		AgentID:    "claude",
+		ActionType: audit.ActionToolCall,
+		Action:     "Bash",
+		Outcome:    audit.OutcomeSuccess,
+	}})
+	next := updated.(watchModel)
+
+	updated, _ = next.Update(auditEventMsg{Event: audit.AuditEvent{
+		Timestamp:             now,
+		AgentID:               "codex",
+		ActionType:            audit.ActionToolCall,
+		Action:                "Write",
+		Outcome:               audit.OutcomeWarned,
+		CommandmentsTriggered: `[{"id":"x"}]`,
+	}})
+	next = updated.(watchModel)
+
+	updated, _ = next.Update(auditEventMsg{Event: audit.AuditEvent{
+		Timestamp:  now,
+		AgentID:    "cursor",
+		ActionType: audit.ActionToolCall,
+		Action:     "Read",
+		Outcome:    audit.OutcomeBlocked,
+	}})
+	next = updated.(watchModel)
+
+	next.filterText = "blocked"
+	next.rebuildFeed()
+	if len(next.feed) != 1 {
+		t.Fatalf("expected 1 blocked row, got %d", len(next.feed))
+	}
+	if !strings.Contains(next.feed[0], "cursor") {
+		t.Fatalf("expected blocked row for cursor, got: %s", next.feed[0])
+	}
+
+	next.filterText = "warned"
+	next.rebuildFeed()
+	if len(next.feed) != 1 {
+		t.Fatalf("expected 1 warned row, got %d", len(next.feed))
+	}
+	if !strings.Contains(next.feed[0], "codex") {
+		t.Fatalf("expected warned row for codex, got: %s", next.feed[0])
+	}
+
+	next.filterText = "success"
+	next.rebuildFeed()
+	if len(next.feed) != 1 {
+		t.Fatalf("expected 1 success row, got %d", len(next.feed))
+	}
+	if !strings.Contains(next.feed[0], "claude") {
+		t.Fatalf("expected success row for claude, got: %s", next.feed[0])
+	}
+}
+
 func TestWatchModel_FilterIndicatorInView(t *testing.T) {
 	now := time.Now().UTC()
 	m := newWatchModel(watchModelDeps{Now: func() time.Time { return now }})
