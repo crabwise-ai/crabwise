@@ -71,10 +71,12 @@ func TestProxyLatencyGate(t *testing.T) {
 	}
 
 	sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
+	p50 := samples[percentileIndex(len(samples), 50)]
 	p95 := samples[percentileIndex(len(samples), 95)]
 	p99 := samples[percentileIndex(len(samples), 99)]
+	max := samples[len(samples)-1]
 
-	t.Logf("m3_bench proxy_roundtrip p95=%s p99=%s", p95, p99)
+	t.Logf("m3_bench proxy_roundtrip p50=%s p95=%s p99=%s max=%s", p50, p95, p99, max)
 	if p95 >= 20*time.Millisecond {
 		t.Fatalf("p95 too high: %s", p95)
 	}
@@ -152,9 +154,11 @@ func TestProxyFirstTokenGate(t *testing.T) {
 
 	directP50 := percentileDuration(directSamples, 50)
 	proxyP50 := percentileDuration(proxySamples, 50)
+	deltaP50 := percentileDuration(deltaSamples, 50)
 	deltaP95 := percentileDuration(deltaSamples, 95)
+	deltaMax := percentileDuration(deltaSamples, 100)
 
-	t.Logf("m3_bench proxy_first_token delta=%s", deltaP95)
+	t.Logf("m3_bench proxy_first_token p50=%s p95=%s max=%s", deltaP50, deltaP95, deltaMax)
 	if deltaP95 >= 50*time.Millisecond {
 		t.Fatalf("first token p95 delta too high: %s (direct_p50=%s proxy_p50=%s)", deltaP95, directP50, proxyP50)
 	}
