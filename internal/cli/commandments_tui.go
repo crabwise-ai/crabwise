@@ -122,7 +122,7 @@ func (m commandmentsTUIModel) View() string {
 	}
 
 	if m.ruleCount == 0 {
-		b.WriteString(fmt.Sprintf("  %s\n", tui.StyleMuted.Render("No commandments loaded.")))
+		fmt.Fprintf(&b, "  %s\n", tui.StyleMuted.Render("No commandments loaded."))
 		b.WriteString("\n")
 		b.WriteString(tui.RenderStatusBar("r reload  q quit", "", w))
 		return b.String()
@@ -136,9 +136,9 @@ func (m commandmentsTUIModel) View() string {
 	// Reload message
 	if m.reloadMsg != "" {
 		if strings.HasPrefix(m.reloadMsg, "✓") {
-			b.WriteString(fmt.Sprintf("  %s\n", tui.StyleSuccess.Render(m.reloadMsg)))
+			fmt.Fprintf(&b, "  %s\n", tui.StyleSuccess.Render(m.reloadMsg))
 		} else {
-			b.WriteString(fmt.Sprintf("  %s\n", tui.StyleError.Render(m.reloadMsg)))
+			fmt.Fprintf(&b, "  %s\n", tui.StyleError.Render(m.reloadMsg))
 		}
 	}
 
