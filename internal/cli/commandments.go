@@ -33,69 +33,49 @@ func newCommandmentsListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List active commandments",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := dialCommandmentsClient(configPath)
-			if err != nil {
-				return err
-			}
-			defer client.Close()
-
-			result, err := client.Call("commandments.list", nil)
-			if err != nil {
-				return fmt.Errorf("commandments.list: %w", err)
-			}
-
-			var rules []daemon.CommandmentRuleSummary
-			if err := json.Unmarshal(result, &rules); err != nil {
-				return fmt.Errorf("parse result: %w", err)
-			}
-
-			if len(rules) == 0 {
-				fmt.Println("No commandments loaded.")
-				return nil
-			}
-
-			if isPlain() {
-				fmt.Printf("%-32s %-11s %-8s %s\n", "NAME", "ENFORCEMENT", "PRIORITY", "ENABLED")
-				for _, rule := range rules {
-					fmt.Printf("%-32s %-11s %-8d %t\n", rule.Name, rule.Enforcement, rule.Priority, rule.Enabled)
+			if !isPlain() {
+				cfg, err := daemon.LoadConfig(configPath)
+				if err != nil {
+					return fmt.Errorf("load config: %w", err)
 				}
-			} else {
-				fmt.Printf("  %s  %s  %s  %s\n",
-					tui.StyleHeading.Render(fmt.Sprintf("%-32s", "NAME")),
-					tui.StyleHeading.Render(fmt.Sprintf("%-11s", "ENFORCEMENT")),
-					tui.StyleHeading.Render(fmt.Sprintf("%-8s", "PRIORITY")),
-					tui.StyleHeading.Render("ENABLED"),
-				)
-				for _, rule := range rules {
-					var enforcement string
-					switch rule.Enforcement {
-					case "block":
-						enforcement = tui.StyleError.Render(fmt.Sprintf("%-11s", rule.Enforcement))
-					case "warn":
-						enforcement = tui.StyleWarning.Render(fmt.Sprintf("%-11s", rule.Enforcement))
-					default:
-						enforcement = tui.StyleBody.Render(fmt.Sprintf("%-11s", rule.Enforcement))
-					}
-					var enabled string
-					if rule.Enabled {
-						enabled = tui.StyleSuccess.Render("✓")
-					} else {
-						enabled = tui.StyleMuted.Render("○")
-					}
-					fmt.Printf("  %s  %s  %s  %s\n",
-						tui.StyleBody.Render(fmt.Sprintf("%-32s", rule.Name)),
-						enforcement,
-						tui.StyleBody.Render(fmt.Sprintf("%-8d", rule.Priority)),
-						enabled,
-					)
-				}
+				return runCommandmentsTUI(cfg.Daemon.SocketPath)
 			}
-			return nil
+
+			return commandmentsListPlain(configPath)
 		},
 	}
 
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "config file path")
 	return cmd
+}
+
+func commandmentsListPlain(configPath string) error {
+	client, err := dialCommandmentsClient(configPath)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	result, err := client.Call("commandments.list", nil)
+	if err != nil {
+		return fmt.Errorf("commandments.list: %w", err)
+	}
+
+	var rules []daemon.CommandmentRuleSummary
+	if err := json.Unmarshal(result, &rules); err != nil {
+		return fmt.Errorf("parse result: %w", err)
+	}
+
+	if len(rules) == 0 {
+		fmt.Println("No commandments loaded.")
+		return nil
+	}
+
+	fmt.Printf("%-32s %-11s %-8s %s\n", "NAME", "ENFORCEMENT", "PRIORITY", "ENABLED")
+	for _, rule := range rules {
+		fmt.Printf("%-32s %-11s %-8d %t\n", rule.Name, rule.Enforcement, rule.Priority, rule.Enabled)
+	}
+	return nil
 }
 
 func newCommandmentsTestCmd() *cobra.Command {
