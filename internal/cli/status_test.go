@@ -29,13 +29,28 @@ func newTestRuntimePaths(t *testing.T) testRuntimePaths {
 	if err != nil {
 		t.Fatalf("create temp dir: %v", err)
 	}
+	socketPath := filepath.Join(dir, "cw.sock")
+	if len(socketPath) >= 100 {
+		_ = os.RemoveAll(dir)
+
+		shortBaseDir := "/tmp"
+		if stat, statErr := os.Stat(shortBaseDir); statErr != nil || !stat.IsDir() {
+			shortBaseDir = os.TempDir()
+		}
+
+		dir, err = os.MkdirTemp(shortBaseDir, "cwtest-")
+		if err != nil {
+			t.Fatalf("create short temp dir: %v", err)
+		}
+		socketPath = filepath.Join(dir, "cw.sock")
+	}
 	t.Cleanup(func() {
 		_ = os.RemoveAll(dir)
 	})
 
 	return testRuntimePaths{
 		dir:              dir,
-		socketPath:       filepath.Join(dir, "cw.sock"),
+		socketPath:       socketPath,
 		dbPath:           filepath.Join(dir, "cw.db"),
 		rawPayloadDir:    filepath.Join(dir, "raw"),
 		pidPath:          filepath.Join(dir, "cw.pid"),
@@ -48,9 +63,11 @@ func newTestRuntimePaths(t *testing.T) testRuntimePaths {
 func TestNewTestRuntimePaths_UsesShortPathsUnderTempDir(t *testing.T) {
 	paths := newTestRuntimePaths(t)
 
-	tempDir := os.TempDir()
-	if !strings.HasPrefix(paths.dir, tempDir+string(os.PathSeparator)) {
-		t.Fatalf("expected test dir under %q, got %q", tempDir, paths.dir)
+	tempParent := filepath.Dir(paths.dir)
+	tempDir := filepath.Clean(os.TempDir())
+	shortTempDir := filepath.Clean("/tmp")
+	if filepath.Clean(tempParent) != tempDir && filepath.Clean(tempParent) != shortTempDir {
+		t.Fatalf("expected test dir under %q or %q, got %q", tempDir, shortTempDir, paths.dir)
 	}
 	if len(paths.socketPath) >= 100 {
 		t.Fatalf("expected short socket path, got %d chars: %q", len(paths.socketPath), paths.socketPath)
