@@ -45,7 +45,7 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 | Audit writer | Batched SQLite inserts, hash-chain integrity | ✅ |
 | CLI queries | `crabwise agents`, `crabwise audit` (time/agent/action filters), `--export json`, `--verify-integrity` | ✅ |
 | IPC | Unix socket (JSON-RPC 2.0), local-user-only permissions | ✅ |
-| Basic watch | `crabwise watch` — streaming text output (not TUI), live event tail | ✅ |
+| Basic watch | `crabwise watch` — streaming text output (not TUI), live event tail | ✅ (Bubble Tea TUI added in M3) |
 | **CI/CD** | **GitHub Actions (lint/test/build), GoReleaser, Dependabot** | **✅ (unplanned)** |
 | **Install script** | **`curl \| bash` installer with OS/arch detection, version pinning** | **✅ (unplanned, pulled from M3)** |
 | **Origin tracing** | **`hostname` + `user_id` (kernel UID) on every audit event** | **✅ (unplanned)** |
@@ -171,39 +171,52 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 - **CONNECT handler**: known provider domains get MITM (TLS handshake with h1-only `NextProtos`, decrypted request fed into existing `handleProxy` pipeline); unknown domains tunnel transparently via bidirectional `io.Copy` with `sync.WaitGroup` cleanup.
 - **CLI convenience**: `crabwise wrap -- <command>` sets `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` (upper and lowercase), `NODE_EXTRA_CA_CERTS`, `NO_PROXY` then `syscall.Exec`s the command. `crabwise env` prints sourceable equivalents.
 
-### M3 — TUI + Polish + Release (Week 5)
+### M3 — TUI + Polish + Release (Week 5) ✅ COMPLETE
+
+**Merged:** PR #12 (`feat/m3-core-gates-execution`) — 2026-02-26
 
 **Demo:** `crabwise watch` shows live Bubble Tea TUI with agent status, cost counter, warnings
 
-| Deliverable | Detail |
-|------------|--------|
-| Bubble Tea TUI | Real-time event feed, agent status, cost counter |
-| TUI features | Filter by agent/action/triggers, warning/block indicators, queue depth + drop counters |
-| OTel export | GenAI span emission, optional collector, local-first default |
-| Install script | `curl -fsSL ... \| sh`, platform detection, checksum verification |
-| Cross-compile | Linux amd64 + arm64 |
-| Release artifacts | `commandments_default.yaml`, README, MIT license |
-| Benchmark suite | All SLOs verified under dual-adapter load |
-
-**Execution profile note (2026-02-25):**
-- Current M3 delivery uses a core-gates-first CI profile: commandment/proxy latency gates + daemon-level proxy allow/block E2E smoke + minimal Bubble Tea watch.
-- OTel and advanced watch filtering are explicitly de-scoped from this M3 pass.
-- Sustained-load SLO measurements (RSS/event-loss/SQLite throughput under dual-adapter load) are tracked as follow-up benchmark work.
-
-**Core-gates-first execution note (explicit order):**
-- Execute M3 in gate order, not feature breadth order: A1 commandment/proxy latency gates, A2 daemon proxy allow/block E2E smoke, B1 minimal Bubble Tea watch (plus `--text` fallback), then C1 release polish/docs alignment.
-- Keep C2 as deferred benchmark follow-up: sustained-load SLO confirmation for RSS, event-loss, and SQLite throughput.
+| Deliverable | Detail | Status |
+|------------|--------|--------|
+| Bubble Tea TUI | Real-time event feed, status strip (queue depth, drops, uptime), trigger-rate counter | ✅ |
+| `--text` fallback | `crabwise watch --text` for headless/CI/non-TTY usage | ✅ |
+| Status polling | IPC-based 3s status poll with failure-resilient `OK` flag | ✅ (unplanned) |
+| Commandment eval latency gate | `TestEvalLatencySLO` — p95 < 2ms, p99 < 8ms, p50/max output | ✅ |
+| Proxy latency gate | `TestProxyLatencyGate` — p95 < 20ms, p50/p95/p99/max output | ✅ |
+| Proxy first-token gate | `TestProxyFirstTokenGate` — p95 < 50ms, p50/p95/max output | ✅ |
+| CI benchmark gate | `scripts/ci/check_m3_bench.sh`, `make bench-gate`, GH Actions `benchmark-gate` job | ✅ |
+| Daemon proxy E2E smoke | `TestDaemonProxyE2E_AllowPath` + `TestDaemonProxyE2E_BlockPath` | ✅ |
+| Proxy data race fix | `httpSrvMu` mutex guards `Proxy.httpSrv` concurrent access | ✅ (unplanned) |
+| Unix socket path stabilization | `/tmp` fallback for macOS 104-byte socket limit in tests | ✅ (unplanned) |
+| Release docs alignment | README, prototype plan, m3-plan-and-tasks.md updated | ✅ |
+| **TUI filters** | **Filter by agent/action/triggers, warning/block indicators** | **→ M3.5** |
+| **OTel export** | **GenAI span emission, optional collector** | **→ M3.5** |
+| **Install script** | **`curl -fsSL ... \| sh`, platform detection, checksum verification** | **→ M3.5** |
+| **Cross-compile** | **Linux amd64 + arm64** | **→ M3.5** |
+| **Sustained-load benchmark suite** | **RSS/event-loss/SQLite throughput under dual-adapter load** | **→ M3.5** |
 
 **Exit gates:**
-- TUI shows queue depth, drop counters, commandment trigger rate
-- RSS < 80MB under dual-adapter active load
-- Binary verification documented in installer
-- All SLOs confirmed by benchmark suite
-- Install script works on fresh Ubuntu + Arch
+- ✅ TUI shows queue depth, drop counters, commandment trigger rate
+- RSS < 80MB under dual-adapter active load → M3.5
+- Binary verification documented in installer → M3.5
+- ✅ Latency SLOs confirmed by CI benchmark gate (commandment eval, proxy roundtrip, first-token delta)
+- Install script works on fresh Ubuntu + Arch → M3.5
 
-**Core-gates-first interpretation (current):**
-- Required for M3 CI sign-off now: latency gates (commandment/proxy/first-token), proxy allow+block daemon E2E smoke, Bubble Tea minimal watch correctness.
-- Deferred follow-up gate: sustained-load benchmark confirmation for RSS/event-loss/SQLite throughput.
+### M3.5 — Deferred M3 Items
+
+Items from the original M3 table that were not part of the core-gates-first scope:
+
+- OTel export (GenAI span emission, optional collector, local-first default)
+- Advanced TUI features (filter by agent/action/triggers, warning/block indicators, scrollback, mouse)
+- Install script (`curl -fsSL ... | sh`, platform detection, checksum verification, Ubuntu + Arch validation)
+- Cross-compile (Linux amd64 + arm64)
+- Sustained-load SLO confirmation:
+  - RSS < 80MB under dual-adapter active load
+  - Event loss = 0 under nominal load with overflow metering validation
+  - SQLite batch insert throughput characterization under sustained load
+- Full reproducibility benchmark profile (10 concurrent clients, 4KB/16KB payloads, 10s warmup + 60s measure)
+- Binary verification documented in installer
 
 ---
 
@@ -220,15 +233,15 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 
 ### SLO Measurement Profile
 
-CI gating in current M3 uses a reduced deterministic profile for fast pass/fail checks. The full reproducibility benchmark profile remains required for follow-up benchmarking/sign-off.
+M3 CI gates shipped (PR #12) with a reduced deterministic profile. The full reproducibility benchmark profile is deferred to M3.5.
 
-Reduced CI profile (current M3 gate behavior):
+Reduced CI profile (✅ shipped in M3):
 
-- commandment eval latency percentile gate output (`m3_bench commandment_eval`)
-- proxy roundtrip + first-token gate output (`m3_bench proxy_roundtrip`, `m3_bench proxy_first_token`)
+- commandment eval latency percentile gate output (`m3_bench commandment_eval`) — p50/p95/p99/max
+- proxy roundtrip + first-token gate output (`m3_bench proxy_roundtrip`, `m3_bench proxy_first_token`) — p50/p95/p99/max
 - daemon proxy allow/block E2E smoke and minimal watch correctness tests
 
-Full reproducibility profile (follow-up benchmark track):
+Full reproducibility profile (→ M3.5):
 
 - **Request payload:** 4KB request body, 16KB response body (representative of chat completions)
 - **Concurrency:** 10 concurrent clients for proxy tests
@@ -237,7 +250,7 @@ Full reproducibility profile (follow-up benchmark track):
 - **Hardware baseline:** 4-core, 8GB RAM Linux (CI runner or equivalent). Report actual hardware in benchmark output.
 - **Measurement:** 10s warmup, 60s measurement window, report p50/p95/p99/max
 
-Deferred sustained-load SLOs tracked in this follow-up profile: RSS footprint, event-loss behavior, and SQLite throughput.
+Deferred sustained-load SLOs tracked in M3.5: RSS footprint, event-loss behavior, and SQLite throughput.
 
 ---
 
@@ -558,11 +571,11 @@ Request arrives at proxy
   - Malformed SSE lines
 
 ### Benchmark Tests (M3 gate)
-- Commandment eval latency (p95/p99)
-- Proxy overhead (non-streaming, streaming first-token)
-- SQLite batch insert throughput
-- Memory footprint under dual-adapter load
-- Queue saturation behavior
+- ✅ Commandment eval latency (p50/p95/p99/max)
+- ✅ Proxy overhead (non-streaming roundtrip, streaming first-token delta)
+- SQLite batch insert throughput → M3.5
+- Memory footprint under dual-adapter load → M3.5
+- Queue saturation behavior → M3.5
 
 ### Fixture Strategy
 - `/testdata/claude-code/` — real CC log samples (anonymized)
@@ -628,7 +641,8 @@ crabwise/
 │   │   ├── start.go
 │   │   ├── stop.go
 │   │   ├── status.go
-│   │   ├── watch.go                # Text streaming (M0) + Bubble Tea (M3)
+│   │   ├── watch.go                # Text streaming fallback (--text)
+│   │   ├── watch_tui.go            # Bubble Tea TUI (M3)
 │   │   ├── wrap.go                 # crabwise wrap -- <cmd> (proxy env + exec)
 │   │   ├── env.go                  # crabwise env (print proxy env vars)
 │   │   ├── audit.go
@@ -696,8 +710,8 @@ crabwise/
 
 If week-5 schedule slips, defer in this order (least critical first):
 
-1. **TUI filters** (agent/action/trigger filtering in Bubble Tea) — basic unfiltered feed is sufficient
-2. **OTel export** — local-only audit is the core value; OTel is optional enhancement
+1. ~~**TUI filters** (agent/action/trigger filtering in Bubble Tea) — basic unfiltered feed is sufficient~~ → M3.5
+2. ~~**OTel export** — local-only audit is the core value; OTel is optional enhancement~~ → M3.5
 3. ~~**Install script** — manual binary download acceptable for prototype~~ ✅ Done in M0
 4. ~~**Cross-compile arm64** — amd64 only is fine for prototype~~ ✅ Done in M0 (linux+darwin, amd64+arm64)
 5. ~~**`crabwise audit --cost`** — cost data still captured, just no summary view~~ ✅ Done in M2
