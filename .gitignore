@@ -4,3 +4,4 @@ bin/
 *.db-shm
 .worktrees/
 .gocache/
+docs/plans/*.swp

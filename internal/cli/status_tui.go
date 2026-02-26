@@ -31,8 +31,6 @@ type statusPollMsg struct {
 	otelEnabled        bool
 	proxyListen        string
 	logWatcherEnabled  bool
-	commandmentsCount  int
-	triggersPerMin     int
 	err                error
 }
 
@@ -57,8 +55,6 @@ type statusTUIModel struct {
 	otelEnabled       bool
 	proxyListen       string
 	logWatcherEnabled bool
-	commandmentsCount int
-	triggersPerMin    int
 	pollInterval      time.Duration
 	err               error
 }
@@ -230,18 +226,6 @@ func (m statusTUIModel) View() string {
 		))
 		b.WriteString("\n")
 	}
-
-	// Commandments section
-	b.WriteString(sectionDivider("Commandments", w))
-	b.WriteString("\n\n")
-	b.WriteString(fmt.Sprintf("  %s %s           %s %s\n",
-		tui.StyleMuted.Render("Rules:"),
-		tui.StyleBody.Render(fmt.Sprintf("%d", m.commandmentsCount)),
-		tui.StyleMuted.Render("Triggers/min:"),
-		tui.StyleBody.Render(fmt.Sprintf("%d", m.triggersPerMin)),
-	))
-
-	b.WriteString("\n")
 
 	// Status bar
 	pollSec := fmt.Sprintf("%ds", int(m.pollInterval.Seconds()))

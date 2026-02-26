@@ -25,10 +25,10 @@ func newStartCmd() *cobra.Command {
 			if !isPlain() {
 				fmt.Println(tui.RenderBannerStatic(Version))
 				fmt.Println()
-				fmt.Printf("  %s %s\n", tui.StatusIcon("active"), tui.StyleBody.Render("Daemon running"))
-				fmt.Printf("  %s %s\n", tui.StatusIcon("active"), tui.StyleBody.Render("Log watcher active"))
+				fmt.Printf("  %s %s\n", tui.StatusIcon("connecting"), tui.StyleBody.Render("Starting daemon..."))
+				fmt.Printf("  %s %s\n", tui.StatusIcon("connecting"), tui.StyleBody.Render("Initializing log watcher..."))
 				if cfg.Adapters.Proxy.Listen != "" {
-					fmt.Printf("  %s %s\n", tui.StatusIcon("active"), tui.StyleBody.Render("Proxy listening on "+cfg.Adapters.Proxy.Listen))
+					fmt.Printf("  %s %s\n", tui.StatusIcon("connecting"), tui.StyleBody.Render("Configuring proxy on "+cfg.Adapters.Proxy.Listen))
 				}
 				fmt.Println()
 			}
