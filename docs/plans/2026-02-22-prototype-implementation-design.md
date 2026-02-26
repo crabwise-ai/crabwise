@@ -627,8 +627,11 @@ crabwise/
 │   │   ├── events.go               # Event type definitions
 │   │   ├── query.go                # Query builder + cost summary
 │   │   ├── redaction.go            # Secret redaction pipeline
-│   │   ├── rawpayload.go           # Sidecar .zst blob manager (write/read/GC)
-│   │   └── otel.go                 # OTel span emission
+│   │   └── rawpayload.go           # Sidecar .zst blob manager (write/read/GC)
+│   ├── otel/
+│   │   ├── provider.go             # TracerProvider init/shutdown (OTLP HTTP)
+│   │   ├── genai.go                # GenAI semconv constants
+│   │   └── span.go                 # GenAI span emission
 │   ├── discovery/
 │   │   ├── scanner.go              # /proc + log file scanning
 │   │   └── registry.go             # In-memory agent registry
