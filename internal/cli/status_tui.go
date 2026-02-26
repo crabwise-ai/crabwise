@@ -28,9 +28,6 @@ type statusPollMsg struct {
 	proxyErrors       interface{}
 	mappingDegraded   interface{}
 	unclassifiedTools interface{}
-	otelEnabled       bool
-	proxyListen       string
-	logWatcherEnabled bool
 	err               error
 }
 
@@ -39,7 +36,6 @@ type statusTUITickMsg struct{}
 
 type statusTUIModel struct {
 	socketPath        string
-	cfg               *daemon.Config
 	width             int
 	connected         bool
 	uptime            string
@@ -62,7 +58,6 @@ type statusTUIModel struct {
 func newStatusTUIModel(cfg *daemon.Config) statusTUIModel {
 	return statusTUIModel{
 		socketPath:        cfg.Daemon.SocketPath,
-		cfg:               cfg,
 		width:             80,
 		pollInterval:      defaultPollInterval,
 		proxyListen:       cfg.Adapters.Proxy.Listen,

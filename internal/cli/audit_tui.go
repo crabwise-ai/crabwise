@@ -228,11 +228,12 @@ func (m auditTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case auditVerifyResultMsg:
 		m.verifying = false
-		if msg.err != nil {
+		switch {
+		case msg.err != nil:
 			m.verifyResult = tui.StatusIcon("error") + " " + tui.StyleError.Render(msg.err.Error())
-		} else if msg.valid {
+		case msg.valid:
 			m.verifyResult = tui.StatusIcon("success") + " " + tui.StyleSuccess.Render(fmt.Sprintf("Hash chain valid (%d events)", msg.total))
-		} else {
+		default:
 			m.verifyResult = tui.StatusIcon("blocked") + " " + tui.StyleError.Render(fmt.Sprintf("Hash chain BROKEN at event %s (%d events checked)", msg.brokenAt, msg.total))
 		}
 		return m, nil
@@ -277,11 +278,7 @@ func (m auditTUIModel) View() string {
 			b.WriteString("  " + tui.StyleMuted.Render("Filter: ") + tui.StyleBody.Render(m.filterText))
 		}
 		pageInfo := fmt.Sprintf("Page %d/%d", m.page+1, m.totalPages)
-		if m.filterActive || m.filterText != "" {
-			b.WriteString("  " + tui.StyleMuted.Render(pageInfo))
-		} else {
-			b.WriteString("  " + tui.StyleMuted.Render(pageInfo))
-		}
+		b.WriteString("  " + tui.StyleMuted.Render(pageInfo))
 		b.WriteString("\n")
 	}
 
@@ -289,10 +286,10 @@ func (m auditTUIModel) View() string {
 
 	// Error display
 	if m.err != nil {
-		b.WriteString(fmt.Sprintf("  %s %s\n",
+		fmt.Fprintf(&b, "  %s %s\n",
 			tui.StatusIcon("error"),
 			tui.StyleError.Render(m.err.Error()),
-		))
+		)
 		b.WriteString("\n")
 		b.WriteString(tui.RenderStatusBar("r retry  q quit", "", w))
 		return b.String()

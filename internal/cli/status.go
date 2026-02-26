@@ -6,7 +6,6 @@ import (
 
 	"github.com/crabwise-ai/crabwise/internal/daemon"
 	"github.com/crabwise-ai/crabwise/internal/ipc"
-	"github.com/crabwise-ai/crabwise/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -66,8 +65,4 @@ func runStatusPlain(cfg *daemon.Config) error {
 	}
 
 	return nil
-}
-
-func printStatusLine(label string, value interface{}) {
-	fmt.Printf("  %s %s\n", tui.StyleMuted.Render(label+":"), tui.StyleBody.Render(fmt.Sprintf("%v", value)))
 }
