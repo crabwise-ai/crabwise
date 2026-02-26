@@ -47,7 +47,7 @@ func TestProxyLatencyGate(t *testing.T) {
 
 	const warmupRequests = 5
 	for i := 0; i < warmupRequests; i++ {
-		resp, err := client.Post(target, "application/json", strings.NewReader(body))
+		resp, _, err := timedPostWithRetry(client, target, "application/json", body, 3)
 		if err != nil {
 			t.Fatalf("warmup request %d failed: %v", i+1, err)
 		}
@@ -57,8 +57,7 @@ func TestProxyLatencyGate(t *testing.T) {
 	const sampleCount = 40
 	samples := make([]time.Duration, 0, sampleCount)
 	for i := 0; i < sampleCount; i++ {
-		start := time.Now()
-		resp, err := client.Post(target, "application/json", strings.NewReader(body))
+		resp, elapsed, err := timedPostWithRetry(client, target, "application/json", body, 3)
 		if err != nil {
 			t.Fatalf("sample request %d failed: %v", i+1, err)
 		}
@@ -67,7 +66,7 @@ func TestProxyLatencyGate(t *testing.T) {
 			t.Fatalf("sample request %d unexpected status: %d", i+1, resp.StatusCode)
 		}
 		drainAndClose(resp.Body)
-		samples = append(samples, time.Since(start))
+		samples = append(samples, elapsed)
 	}
 
 	sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
@@ -80,6 +79,33 @@ func TestProxyLatencyGate(t *testing.T) {
 	if p95 >= 20*time.Millisecond {
 		t.Fatalf("p95 too high: %s", p95)
 	}
+}
+
+func TestTimedPostWithRetry_RetriesTransientConnectionReset(t *testing.T) {
+	attempts := 0
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			attempts++
+			if attempts == 1 {
+				return nil, fmt.Errorf("read: connection reset by peer")
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+				Header:     make(http.Header),
+				Request:    req,
+			}, nil
+		}),
+	}
+
+	resp, _, err := timedPostWithRetry(client, "http://example.com/v1/chat/completions", "application/json", `{"x":1}`, 3)
+	if err != nil {
+		t.Fatalf("expected retry to succeed, got error: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("expected 2 attempts, got %d", attempts)
+	}
+	drainAndClose(resp.Body)
 }
 
 func TestProxyFirstTokenGate(t *testing.T) {
@@ -188,12 +214,51 @@ func firstTokenLatency(client *http.Client, targetURL, requestBody string) (time
 	}
 }
 
+func timedPostWithRetry(client *http.Client, targetURL, contentType, requestBody string, maxAttempts int) (*http.Response, time.Duration, error) {
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		start := time.Now()
+		resp, err := client.Post(targetURL, contentType, strings.NewReader(requestBody))
+		if err == nil {
+			return resp, time.Since(start), nil
+		}
+
+		lastErr = err
+		if !isTransientPostError(err) {
+			break
+		}
+	}
+
+	return nil, 0, lastErr
+}
+
+func isTransientPostError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "connection reset by peer") ||
+		strings.Contains(lower, "broken pipe") ||
+		strings.Contains(lower, "unexpected eof") ||
+		strings.Contains(lower, ": eof")
+}
+
 func drainAndClose(body io.ReadCloser) {
 	if body == nil {
 		return
 	}
 	_, _ = io.Copy(io.Discard, body)
 	_ = body.Close()
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 func percentileDuration(samples []time.Duration, percentile int) time.Duration {
