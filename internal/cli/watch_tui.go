@@ -139,7 +139,7 @@ func runWatchTUI(cfg *daemon.Config) error {
 	m.scanner = conn.scanner
 	m.connected = true
 
-	program := tea.NewProgram(m)
+	program := tea.NewProgram(m, tea.WithAltScreen())
 	finalModel, err := program.Run()
 	if err != nil {
 		return err

@@ -242,7 +242,7 @@ func reloadCommandments(socketPath string) tea.Cmd {
 
 func runCommandmentsTUI(socketPath string) error {
 	m := newCommandmentsTUIModel(socketPath)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }

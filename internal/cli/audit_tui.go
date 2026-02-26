@@ -491,7 +491,7 @@ func verifyAuditIntegrity(socketPath string) tea.Cmd {
 
 func runAuditTUI(socketPath string, queryParams map[string]interface{}, initialMode string) error {
 	m := newAuditTUIModel(socketPath, queryParams, initialMode)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }
