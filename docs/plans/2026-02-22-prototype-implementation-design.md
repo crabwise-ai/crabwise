@@ -190,6 +190,10 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 - OTel and advanced watch filtering are explicitly de-scoped from this M3 pass.
 - Sustained-load SLO measurements (RSS/event-loss/SQLite throughput under dual-adapter load) are tracked as follow-up benchmark work.
 
+**Core-gates-first execution note (explicit order):**
+- Execute M3 in gate order, not feature breadth order: A1 commandment/proxy latency gates, A2 daemon proxy allow/block E2E smoke, B1 minimal Bubble Tea watch (plus `--text` fallback), then C1 release polish/docs alignment.
+- Keep C2 as deferred benchmark follow-up: sustained-load SLO confirmation for RSS, event-loss, and SQLite throughput.
+
 **Exit gates:**
 - TUI shows queue depth, drop counters, commandment trigger rate
 - RSS < 80MB under dual-adapter active load
@@ -216,7 +220,15 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 
 ### SLO Measurement Profile
 
-Benchmarks use this standard profile for reproducibility:
+CI gating in current M3 uses a reduced deterministic profile for fast pass/fail checks. The full reproducibility benchmark profile remains required for follow-up benchmarking/sign-off.
+
+Reduced CI profile (current M3 gate behavior):
+
+- commandment eval latency percentile gate output (`m3_bench commandment_eval`)
+- proxy roundtrip + first-token gate output (`m3_bench proxy_roundtrip`, `m3_bench proxy_first_token`)
+- daemon proxy allow/block E2E smoke and minimal watch correctness tests
+
+Full reproducibility profile (follow-up benchmark track):
 
 - **Request payload:** 4KB request body, 16KB response body (representative of chat completions)
 - **Concurrency:** 10 concurrent clients for proxy tests
@@ -224,6 +236,8 @@ Benchmarks use this standard profile for reproducibility:
 - **Event volume:** 100 events/sec sustained for queue/audit tests
 - **Hardware baseline:** 4-core, 8GB RAM Linux (CI runner or equivalent). Report actual hardware in benchmark output.
 - **Measurement:** 10s warmup, 60s measurement window, report p50/p95/p99/max
+
+Deferred sustained-load SLOs tracked in this follow-up profile: RSS footprint, event-loss behavior, and SQLite throughput.
 
 ---
 

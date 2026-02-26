@@ -83,7 +83,19 @@ Lists discovered AI agent sessions and their status.
 
 ### `crabwise watch`
 
-Streams audit events in real time as supported agents generate them (Claude Code, Codex CLI).
+`crabwise watch` defaults to a minimal Bubble Tea dashboard for M3. It focuses on release-gate visibility instead of full dashboard interactions:
+
+- live feed of recent audit events
+- daemon/status panel (uptime, queue depth, dropped count)
+- commandment trigger rate panel
+
+Reconnect behavior is intentionally conservative for this milestone: on stream disconnect, watch performs one reconnect attempt, then exits with an error if reconnect fails.
+
+Use `--text` to force the legacy plain-text stream output mode.
+
+M3 scope note: OpenTelemetry export is intentionally deferred and not required for M3 sign-off.
+
+Text fallback example:
 
 ```
 14:23:05 [claude-code] tool_call           Read  src/main.ts
