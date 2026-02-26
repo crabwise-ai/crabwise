@@ -9,7 +9,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var crabArt = []string{
+// CrabArt holds the raw crab ASCII art lines for reuse in custom banners.
+var CrabArt = []string{
 	`▄█▀      ▀█▄`,
 	`█▄█ ▄  ▄ █▄█`,
 	`█▀ ▄█▄▄█▄ ▀█`,
@@ -37,7 +38,7 @@ type BannerModel struct {
 // NewBannerModel creates a new animated crab banner.
 func NewBannerModel(version string) BannerModel {
 	maxWidth := 0
-	for _, line := range crabArt {
+	for _, line := range CrabArt {
 		w := len([]rune(line))
 		if w > maxWidth {
 			maxWidth = w
@@ -77,7 +78,7 @@ func (m BannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m BannerModel) View() string {
 	rightText := bannerRightText(m.version)
 	var lines []string
-	for i, art := range crabArt {
+	for i, art := range CrabArt {
 		rendered := m.renderArtLine(art)
 		right := ""
 		if i < len(rightText) {
@@ -120,7 +121,7 @@ func bannerRightText(version string) []string {
 func RenderBannerStatic(version string) string {
 	rightText := bannerRightText(version)
 	var lines []string
-	for i, art := range crabArt {
+	for i, art := range CrabArt {
 		styled := lipgloss.NewStyle().Foreground(ColorCrabOrange).Render(art)
 		right := ""
 		if i < len(rightText) {
