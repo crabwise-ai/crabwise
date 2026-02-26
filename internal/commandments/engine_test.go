@@ -285,6 +285,7 @@ func TestEvalLatencySLO(t *testing.T) {
 	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
 	p95 := durations[(n*95/100)-1]
 	p99 := durations[(n*99/100)-1]
+	t.Logf("m3_bench commandment_eval p95=%s p99=%s", p95, p99)
 
 	if p95 >= 2*time.Millisecond {
 		t.Fatalf("p95 too high: %s", p95)
