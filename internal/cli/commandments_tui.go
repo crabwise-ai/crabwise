@@ -115,7 +115,7 @@ func (m commandmentsTUIModel) View() string {
 	b.WriteString("\n\n")
 
 	if m.err != nil {
-		b.WriteString(fmt.Sprintf("  %s %s\n", tui.StatusIcon("error"), tui.StyleError.Render(m.err.Error())))
+		fmt.Fprintf(&b, "  %s %s\n", tui.StatusIcon("error"), tui.StyleError.Render(m.err.Error()))
 		b.WriteString("\n")
 		b.WriteString(tui.RenderStatusBar("r retry  q quit", "", w))
 		return b.String()

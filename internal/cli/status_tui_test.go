@@ -77,7 +77,7 @@ func TestStatusTUIModel_Update(t *testing.T) {
 	}
 
 	// Test q key quits
-	updated, cmd = next.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	_, cmd = next.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
 	if cmd == nil {
 		t.Fatal("expected quit cmd from 'q' key")
 	}

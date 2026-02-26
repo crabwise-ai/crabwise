@@ -58,8 +58,7 @@ func (m BannerModel) Init() tea.Cmd {
 }
 
 func (m BannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg.(type) {
-	case bannerTickMsg:
+	if _, ok := msg.(bannerTickMsg); ok {
 		if m.done {
 			return m, nil
 		}
@@ -94,13 +93,12 @@ func (m BannerModel) renderArtLine(line string) string {
 	var b strings.Builder
 	for i, r := range runes {
 		var style lipgloss.Style
-		if m.done || i < m.pos-2 {
+		switch {
+		case m.done || i < m.pos-2:
 			style = lipgloss.NewStyle().Foreground(ColorCrabOrange)
-		} else if i == m.pos-2 {
+		case i == m.pos-2:
 			style = lipgloss.NewStyle().Foreground(ColorWarmGold)
-		} else if i == m.pos-1 || i == m.pos {
-			style = lipgloss.NewStyle().Foreground(ColorDriftGray)
-		} else {
+		default:
 			style = lipgloss.NewStyle().Foreground(ColorDriftGray)
 		}
 		b.WriteString(style.Render(string(r)))
