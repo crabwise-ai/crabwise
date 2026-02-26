@@ -21,9 +21,13 @@ import (
 	"github.com/crabwise-ai/crabwise/internal/classify"
 	"github.com/crabwise-ai/crabwise/internal/discovery"
 	"github.com/crabwise-ai/crabwise/internal/ipc"
+	crabwiseOtel "github.com/crabwise-ai/crabwise/internal/otel"
 	"github.com/crabwise-ai/crabwise/internal/queue"
 	"github.com/crabwise-ai/crabwise/internal/store"
 )
+
+// Version is set by the CLI layer at startup to avoid import cycles.
+var Version = "dev"
 
 type Daemon struct {
 	cfg          *Config
@@ -74,6 +78,23 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	d.store = s
 	defer s.Close()
+
+	// OTel TracerProvider
+	otelShutdown, otelErr := crabwiseOtel.Init(ctx, crabwiseOtel.Config{
+		Enabled:        d.cfg.OTel.Enabled,
+		Endpoint:       d.cfg.OTel.Endpoint,
+		ExportInterval: d.cfg.OTel.ExportInterval.Duration(),
+		ServiceName:    "crabwise",
+		ServiceVersion: Version,
+	})
+	if otelErr != nil {
+		return fmt.Errorf("otel init: %w", otelErr)
+	}
+	defer func() {
+		if err := otelShutdown(context.Background()); err != nil {
+			log.Printf("daemon: otel shutdown: %v", err)
+		}
+	}()
 
 	// Queue
 	policy := queue.PolicyBlockWithTimeout

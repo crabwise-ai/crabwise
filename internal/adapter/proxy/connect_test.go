@@ -89,11 +89,15 @@ func generateTestCA(t *testing.T) (certPath, keyPath string, pool *x509.CertPool
 }
 
 func startTestProxy(t *testing.T, cfg Config, eval Evaluator) string {
+	return startTestProxyWithEvents(t, cfg, eval, make(chan *audit.AuditEvent, 100))
+}
+
+func startTestProxyWithEvents(t *testing.T, cfg Config, eval Evaluator, events chan *audit.AuditEvent) string {
 	t.Helper()
 	addr := freePort(t)
 	cfg.Listen = addr
 
-	p, err := New(cfg, eval, nil, make(chan *audit.AuditEvent, 100))
+	p, err := New(cfg, eval, nil, events)
 	if err != nil {
 		t.Fatalf("proxy.New: %v", err)
 	}
@@ -136,6 +140,42 @@ func testProxyConfig(upstreamURL, caCert, caKey string) Config {
 				RoutePatterns:   []string{"/v1/*"},
 			},
 		},
+	}
+}
+
+func TestStartTestProxy_WithNilEventsChannel(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	upstreamURL := strings.Replace(upstream.URL, "127.0.0.1", "localhost", 1)
+	caCert, caKey, caPool := generateTestCA(t)
+	cfg := testProxyConfig(upstreamURL, caCert, caKey)
+	proxyAddr := startTestProxyWithEvents(t, cfg, allowEval{}, nil)
+
+	proxyURL, _ := url.Parse("http://" + proxyAddr)
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+			TLSClientConfig: &tls.Config{
+				RootCAs: caPool,
+			},
+		},
+	}
+
+	u, _ := url.Parse(upstreamURL)
+	target := "https://" + u.Host + "/v1/chat/completions"
+	resp, err := client.Post(target, "application/json", strings.NewReader(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatalf("proxy request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.StatusCode)
 	}
 }
 
