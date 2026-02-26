@@ -134,6 +134,120 @@ func TestWatchModel_StatusPollFailurePreservesMetrics(t *testing.T) {
 	}
 }
 
+func TestWatchModel_FilterMatchesEvents(t *testing.T) {
+	now := time.Now().UTC()
+	m := newWatchModel(watchModelDeps{Now: func() time.Time { return now }})
+
+	// Add events from two different agents
+	updated, _ := m.Update(auditEventMsg{Event: audit.AuditEvent{
+		Timestamp:  now,
+		AgentID:    "claude",
+		ActionType: audit.ActionToolCall,
+		Action:     "Bash",
+		Arguments:  `{"command":"ls"}`,
+		Outcome:    audit.OutcomeSuccess,
+	}})
+	next := updated.(watchModel)
+
+	updated, _ = next.Update(auditEventMsg{Event: audit.AuditEvent{
+		Timestamp:  now,
+		AgentID:    "codex",
+		ActionType: audit.ActionAIRequest,
+		Action:     "chat",
+		Arguments:  `{"model":"gpt-4o"}`,
+		Outcome:    audit.OutcomeSuccess,
+	}})
+	next = updated.(watchModel)
+
+	if len(next.feed) != 2 {
+		t.Fatalf("expected 2 feed rows, got %d", len(next.feed))
+	}
+
+	// Apply filter for "claude"
+	next.filterText = "claude"
+	next.rebuildFeed()
+
+	if len(next.feed) != 1 {
+		t.Fatalf("expected 1 filtered row, got %d", len(next.feed))
+	}
+	if !strings.Contains(next.feed[0], "claude") {
+		t.Fatalf("expected filtered feed to contain 'claude', got: %s", next.feed[0])
+	}
+
+	// Clear filter
+	next.filterText = ""
+	next.rebuildFeed()
+
+	if len(next.feed) != 2 {
+		t.Fatalf("expected 2 feed rows after clear, got %d", len(next.feed))
+	}
+}
+
+func TestWatchModel_FilterIndicatorInView(t *testing.T) {
+	now := time.Now().UTC()
+	m := newWatchModel(watchModelDeps{Now: func() time.Time { return now }})
+	m.filterText = "claude"
+
+	view := m.View()
+	if !strings.Contains(view, "Filter: claude") {
+		t.Fatalf("expected filter indicator in view, got: %s", view)
+	}
+}
+
+func TestWatchModel_WarnBlockIndicators(t *testing.T) {
+	now := time.Now().UTC()
+	m := newWatchModel(watchModelDeps{Now: func() time.Time { return now }})
+
+	// Success event - no prefix
+	updated, _ := m.Update(auditEventMsg{Event: audit.AuditEvent{
+		Timestamp:  now,
+		AgentID:    "claude",
+		ActionType: audit.ActionToolCall,
+		Action:     "Bash",
+		Outcome:    audit.OutcomeSuccess,
+	}})
+	next := updated.(watchModel)
+
+	// Warned event - ⚠ prefix
+	updated, _ = next.Update(auditEventMsg{Event: audit.AuditEvent{
+		Timestamp:             now,
+		AgentID:               "claude",
+		ActionType:            audit.ActionToolCall,
+		Action:                "Write",
+		Outcome:               audit.OutcomeWarned,
+		CommandmentsTriggered: `[{"id":"x"}]`,
+	}})
+	next = updated.(watchModel)
+
+	// Blocked event - ✖ prefix
+	updated, _ = next.Update(auditEventMsg{Event: audit.AuditEvent{
+		Timestamp:  now,
+		AgentID:    "codex",
+		ActionType: audit.ActionToolCall,
+		Action:     "Bash",
+		Outcome:    audit.OutcomeBlocked,
+	}})
+	next = updated.(watchModel)
+
+	// Feed should have 3 entries (most recent first)
+	if len(next.feed) != 3 {
+		t.Fatalf("expected 3 feed rows, got %d", len(next.feed))
+	}
+
+	// Most recent (blocked) should contain ✖
+	if !strings.Contains(next.feed[0], "✖") {
+		t.Fatalf("expected blocked event to contain ✖, got: %s", next.feed[0])
+	}
+	// Warned should contain ⚠
+	if !strings.Contains(next.feed[1], "⚠") {
+		t.Fatalf("expected warned event to contain ⚠, got: %s", next.feed[1])
+	}
+	// Success should NOT contain ⚠ or ✖
+	if strings.Contains(next.feed[2], "⚠") || strings.Contains(next.feed[2], "✖") {
+		t.Fatalf("expected success event to have no indicator, got: %s", next.feed[2])
+	}
+}
+
 func TestWatchModel_ReconnectAttemptOnce(t *testing.T) {
 	reconnectCalls := 0
 	m := newWatchModel(watchModelDeps{
