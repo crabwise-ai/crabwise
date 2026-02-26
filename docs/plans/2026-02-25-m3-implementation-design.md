@@ -1,4 +1,10 @@
-# M3 Implementation Design (Core Gates First)
+# M3 Implementation Design (Core Gates First) — ✅ COMPLETE
+
+## Status
+
+**Merged:** PR #12 (`feat/m3-core-gates-execution`) — 2026-02-26
+
+All core-gates-first deliverables shipped. Remaining M3 table items (OTel, install script, cross-compile, advanced TUI filters, sustained-load SLOs) are tracked in M3.5.
 
 ## Context
 
@@ -25,13 +31,13 @@ This balances delivery speed with confidence and avoids turning M3 into an open-
 
 ### In Scope
 
-- CI benchmark gate for commandment evaluation latency and proxy latency/first-token overhead.
-- Daemon-level forward proxy E2E smoke test through real startup/runtime wiring.
-- Bubble Tea single-screen watch UI with three regions:
+- ✅ CI benchmark gate for commandment evaluation latency and proxy latency/first-token overhead.
+- ✅ Daemon-level forward proxy E2E smoke test through real startup/runtime wiring.
+- ✅ Bubble Tea single-screen watch UI with three regions:
   - live event feed from `audit.subscribe`
-  - status strip (queue depth, dropped count, uptime)
-  - trigger-rate counter
-- Release readiness polish for artifacts/docs.
+  - status strip (queue depth, dropped count, uptime) — polled via IPC every 3s
+  - trigger-rate counter (rolling 1-minute window from streamed events)
+- ✅ Release readiness polish for artifacts/docs.
 
 ### Out of Scope (M3)
 
@@ -39,47 +45,57 @@ This balances delivery speed with confidence and avoids turning M3 into an open-
 - Interactive TUI filters, scrollback UX, mouse support.
 - Full sustained-load rig (100 events/sec, long-window RSS tracking) as a hard gate.
 
-### Deferred SLO Coverage (Follow-up Track)
+### Deferred to M3.5
 
-The prototype M3 SLO table includes additional release-gate measurements that are not part of the core-gates-first CI profile.
+The following items from the original M3 table in the prototype plan were not part of the core-gates-first scope and are tracked in M3.5:
 
-- Deferred to follow-up benchmark track (`M3.1`):
+- OTel export (GenAI span emission, optional collector)
+- Install script (`curl -fsSL ... | sh`, platform detection, checksum verification)
+- Cross-compile (Linux amd64 + arm64)
+- Advanced TUI features (filter by agent/action/triggers, warning/block indicators)
+- Sustained-load SLO confirmation:
   - RSS < 80MB under dual-adapter active load
   - Event loss = 0 under nominal load with overflow metering validation
   - SQLite batch insert throughput characterization under sustained load
-- M3 CI gate remains authoritative for: commandment eval latency, proxy overhead/first-token delta, and daemon-level proxy allow/block E2E correctness.
+- Full reproducibility benchmark profile (10 concurrent clients, 4KB/16KB payloads, 10s warmup + 60s measure)
+- Binary verification documented in installer
+- Install script works on fresh Ubuntu + Arch
 
 ## Architecture and Sequencing
 
-### Phase A - Gates First
+### Phase A - Gates First ✅
 
-1. Add benchmark harness runnable in CI.
-2. Measure and enforce p95/p99 regression thresholds for:
-   - commandment eval latency
-   - proxy round-trip and first-token overhead
-3. Add daemon-level proxy E2E smoke test with deterministic mock upstream.
+1. ✅ Benchmark harness runnable in CI (`scripts/ci/check_m3_bench.sh`, `make bench-gate`, CI `benchmark-gate` job).
+2. ✅ p95/p99 regression thresholds enforced for:
+   - commandment eval latency (p95 < 2ms, p99 < 8ms) — `TestEvalLatencySLO`
+   - proxy round-trip overhead (p95 < 20ms) — `TestProxyLatencyGate`
+   - proxy first-token delta (p95 < 50ms) — `TestProxyFirstTokenGate`
+   - all gates emit p50/p95/p99/max output
+3. ✅ Daemon-level proxy E2E smoke with deterministic mock upstream — `TestDaemonProxyE2E_AllowPath`, `TestDaemonProxyE2E_BlockPath`
+4. ✅ Unix socket path stabilization for macOS test reliability
+5. ✅ Proxy `Start()`/`Stop()` data race fix (`httpSrvMu` guard)
 
 Measurement note:
 - CI gate uses a reduced, deterministic profile for regression detection.
-- Full benchmark profile from the prototype plan (10 concurrent clients, 4KB/16KB payloads, 10s warmup + 60s measurement) remains the reproducibility profile for follow-up benchmarking, not this first M3 CI gate.
+- Full benchmark profile from the prototype plan (10 concurrent clients, 4KB/16KB payloads, 10s warmup + 60s measurement) remains the reproducibility profile for M3.5 benchmarking.
 
 Design intent: validate the highest-risk release behaviors quickly and fail fast in CI.
 
-### Phase B - Minimal Bubble Tea Watch
+### Phase B - Minimal Bubble Tea Watch ✅
 
-1. Add Bubble Tea single-screen model as default watch view.
-2. Keep presentation read-only and lightweight.
-3. Pull events from `audit.subscribe` and poll `status` periodically.
-4. Compute trigger-rate in-process from streamed events.
-5. Keep existing text stream as explicit fallback via `crabwise watch --text`.
+1. ✅ Bubble Tea single-screen model as default watch view (`internal/cli/watch_tui.go`).
+2. ✅ Presentation is read-only and lightweight.
+3. ✅ Events from `audit.subscribe` stream + `status` polled via short-lived IPC every 3s (with `OK` flag to avoid zeroing metrics on poll failure).
+4. ✅ Trigger-rate computed in-process from streamed events (rolling 1-minute window, counts warned/blocked outcomes + non-empty `commandments_triggered`).
+5. ✅ Text fallback via `crabwise watch --text` (`internal/cli/watch.go` with signal-safe shutdown).
 
 Design intent: hit the M3 demo target with low complexity and high reliability.
 
-### Phase C - Release Polish
+### Phase C - Release Polish ✅ (partial)
 
-1. Confirm release artifacts and docs are consistent with shipped behavior.
-2. Ensure installer verification guidance is documented.
-3. Leave OTel as future milestone work.
+1. ✅ Release artifacts and docs aligned with shipped behavior (README, prototype plan, `m3-plan-and-tasks.md`).
+2. Installer verification guidance → M3.5 (no install script yet).
+3. ✅ OTel confirmed as M3.5 work.
 
 ## Data Flow
 
@@ -87,7 +103,7 @@ Design intent: hit the M3 demo target with low complexity and high reliability.
 
 `go test -bench` -> benchmark output parser -> threshold evaluation -> CI pass/fail.
 
-Required output includes `p50/p95/p99/max` for each gated metric.
+Required output includes `p50/p95/p99/max` for each gated metric. ✅ Implemented.
 
 ### Proxy E2E Smoke Flow
 
@@ -125,39 +141,39 @@ Two required paths:
 
 M3 sign-off requires:
 
-1. CI benchmark gate is green for defined latency thresholds.
-2. CI daemon-level proxy E2E smoke is green for both allow and block cases.
-3. Bubble Tea minimal dashboard is functional and stable.
-4. Existing test suites remain green after integration.
-5. Deferred SLO items are tracked explicitly as follow-up work and not treated as implicit pass criteria for this M3 CI gate.
+1. ✅ CI benchmark gate is green for defined latency thresholds.
+2. ✅ CI daemon-level proxy E2E smoke is green for both allow and block cases.
+3. ✅ Bubble Tea minimal dashboard is functional and stable.
+4. ✅ Existing test suites remain green after integration (`go test -race -count=1 ./...` — 11/11 packages).
+5. ✅ Deferred SLO items tracked explicitly in M3.5 (not implicit pass criteria for M3 CI gate).
 
 ## Implementation Slices
 
-### Slice A1 - CI Benchmark Gate
+### Slice A1 - CI Benchmark Gate ✅
 
-- Add benchmark targets and threshold checks.
-- Integrate into CI as authoritative gate.
+- ✅ Benchmark targets and threshold checks.
+- ✅ Integrated into CI as authoritative gate.
 
-### Slice A2 - Proxy E2E Smoke
+### Slice A2 - Proxy E2E Smoke ✅
 
-- Add deterministic daemon-level integration test using mock upstream.
-- Assert allow and block behavior with audit confirmation.
+- ✅ Deterministic daemon-level integration test using mock upstream.
+- ✅ Allow and block behavior asserted with audit confirmation.
 
-### Slice B1 - Bubble Tea Minimal Watch
+### Slice B1 - Bubble Tea Minimal Watch ✅
 
-- Build single-screen watch UI.
-- Wire event stream + status polling + trigger-rate counter.
-- Add one reconnect attempt with short backoff.
-- Preserve text fallback mode via `--text` for non-TTY/headless usage.
+- ✅ Single-screen watch UI.
+- ✅ Event stream + status polling (3s IPC) + trigger-rate counter.
+- ✅ One reconnect attempt with 1.5s backoff.
+- ✅ Text fallback mode via `--text` for non-TTY/headless usage.
 
-### Slice C2 - Deferred SLO Follow-up Stub (M3.1)
+### Slice C2 - Deferred SLO Follow-up → M3.5
 
-- Add tracking issue/plan section for RSS, event-loss, and SQLite sustained-load benchmarks.
-- Do not block M3 core release gate on this slice.
+- Deferred to M3.5: RSS, event-loss, and SQLite sustained-load benchmarks.
+- Did not block M3 core release gate.
 
-### Slice C1 - Release Polish
+### Slice C1 - Release Polish ✅
 
-- Align docs/artifacts/install verification with shipped behavior.
+- ✅ Docs/artifacts aligned with shipped behavior.
 
 ## De-scope Order (If Schedule Slips)
 
@@ -165,6 +181,14 @@ M3 sign-off requires:
 2. Extended load-lab and long-window RSS harness.
 3. OTel remains out of M3 by default.
 
+## Unplanned Additions (during implementation)
+
+- **Status polling resilience**: `statusResultMsg.OK` flag prevents transient IPC failures from zeroing dashboard metrics.
+- **Proxy data race fix**: `httpSrvMu` mutex guards `Proxy.httpSrv` against concurrent `Start()`/`Stop()` access.
+- **Unix socket path stabilization**: `newTestRuntimePaths` / `shortRuntimeDir` helpers with `/tmp` fallback for macOS 104-byte socket limit.
+- **Benchmark p50/max output**: All gates emit p50/p95/p99/max (design doc originally specified this; implementation initially only had p95/p99).
+
 ## Approval Record
 
 This design was reviewed and approved in collaborative discussion before implementation planning.
+Implementation completed and merged via PR #12 on 2026-02-26.

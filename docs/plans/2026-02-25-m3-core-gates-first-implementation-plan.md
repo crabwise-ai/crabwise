@@ -1,4 +1,6 @@
-# M3 Core Gates First Implementation Plan
+# M3 Core Gates First Implementation Plan — ✅ COMPLETE
+
+**Merged:** PR #12 (`feat/m3-core-gates-execution`) — 2026-02-26
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
@@ -12,7 +14,7 @@
 
 ---
 
-### Task 0: Stabilize Unix Socket Test Paths (Precondition)
+### Task 0: Stabilize Unix Socket Test Paths (Precondition) ✅
 
 **Files:**
 - Modify: `internal/cli/audit_integration_test.go`
@@ -56,7 +58,7 @@ git add internal/cli/audit_integration_test.go internal/cli/status_test.go inter
 git commit -m "test: use short unix socket paths in integration tests"
 ```
 
-### Task 1: Commandment Latency Gate (Percentiles + Threshold)
+### Task 1: Commandment Latency Gate (Percentiles + Threshold) ✅
 
 **Files:**
 - Modify: `internal/commandments/engine_test.go`
@@ -104,7 +106,7 @@ git add internal/commandments/engine_test.go
 git commit -m "test: gate commandment eval latency percentiles"
 ```
 
-### Task 2: Proxy Latency/First-Token Benchmark Harness
+### Task 2: Proxy Latency/First-Token Benchmark Harness ✅
 
 **Files:**
 - Create: `internal/adapter/proxy/latency_benchmark_test.go`
@@ -167,7 +169,7 @@ git add internal/adapter/proxy/latency_benchmark_test.go internal/adapter/proxy/
 git commit -m "test: add proxy latency and first-token gates"
 ```
 
-### Task 3: CI Benchmark Gate Wiring
+### Task 3: CI Benchmark Gate Wiring ✅
 
 **Files:**
 - Create: `scripts/ci/check_m3_bench.sh`
@@ -227,7 +229,7 @@ git add scripts/ci/check_m3_bench.sh .github/workflows/ci.yml Makefile
 git commit -m "ci: enforce M3 benchmark regression gate"
 ```
 
-### Task 4: Daemon-Level Proxy E2E Smoke (Allow + Block)
+### Task 4: Daemon-Level Proxy E2E Smoke (Allow + Block) ✅
 
 **Files:**
 - Create: `internal/daemon/proxy_e2e_test.go`
@@ -288,7 +290,7 @@ git add internal/daemon/proxy_e2e_test.go internal/daemon/daemon_test.go
 git commit -m "test: add daemon-level proxy smoke coverage"
 ```
 
-### Task 5: Minimal Bubble Tea `watch` UI with Single Reconnect
+### Task 5: Minimal Bubble Tea `watch` UI with Single Reconnect ✅
 
 **Files:**
 - Modify: `go.mod`
@@ -367,7 +369,7 @@ git commit -m "feat: add minimal Bubble Tea watch dashboard"
 git add internal/cli/cli_test.go
 ```
 
-### Task 6: Release Polish (No OTel in M3)
+### Task 6: Release Polish (No OTel in M3) ✅
 
 **Files:**
 - Modify: `README.md`
@@ -420,7 +422,7 @@ git add README.md docs/plans/2026-02-22-prototype-implementation-design.md docs/
 git commit -m "docs: finalize M3 scope and release gates"
 ```
 
-### Task 7: Final Verification and Merge Readiness
+### Task 7: Final Verification and Merge Readiness ✅
 
 **Files:**
 - Modify: none (verification task)
