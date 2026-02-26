@@ -90,7 +90,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if otelErr != nil {
 		return fmt.Errorf("otel init: %w", otelErr)
 	}
-	defer otelShutdown(context.Background())
+	defer func() {
+		if err := otelShutdown(context.Background()); err != nil {
+			log.Printf("daemon: otel shutdown: %v", err)
+		}
+	}()
 
 	// Queue
 	policy := queue.PolicyBlockWithTimeout

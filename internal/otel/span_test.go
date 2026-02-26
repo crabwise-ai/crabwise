@@ -8,13 +8,14 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
+	tracenoop "go.opentelemetry.io/otel/trace/noop"
 )
 
 func TestEmitGenAISpan_Attributes(t *testing.T) {
 	recorder := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
 	otel.SetTracerProvider(tp)
-	defer otel.SetTracerProvider(trace.NewNoopTracerProvider())
+	defer otel.SetTracerProvider(tracenoop.NewTracerProvider())
 
 	data := GenAISpanData{
 		System:        "openai",
@@ -94,7 +95,7 @@ func TestEmitGenAISpan_OptionalFieldsOmitted(t *testing.T) {
 	recorder := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
 	otel.SetTracerProvider(tp)
-	defer otel.SetTracerProvider(trace.NewNoopTracerProvider())
+	defer otel.SetTracerProvider(tracenoop.NewTracerProvider())
 
 	EmitGenAISpan(context.Background(), GenAISpanData{
 		System:       "openai",
@@ -122,7 +123,7 @@ func TestEmitGenAISpan_OptionalFieldsOmitted(t *testing.T) {
 
 func TestEmitGenAISpan_NoOpWhenDisabled(t *testing.T) {
 	// Reset to default no-op provider
-	otel.SetTracerProvider(trace.NewNoopTracerProvider())
+	otel.SetTracerProvider(tracenoop.NewTracerProvider())
 
 	// Should not panic
 	EmitGenAISpan(context.Background(), GenAISpanData{
