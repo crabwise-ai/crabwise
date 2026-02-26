@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/crabwise-ai/crabwise/internal/daemon"
 )
 
 func TestRootRegistersCommandmentsCommand(t *testing.T) {
@@ -90,5 +92,47 @@ func TestWriteDefaultFile(t *testing.T) {
 	}
 	if string(data) != "third" {
 		t.Fatalf("expected overwritten content, got %q", string(data))
+	}
+}
+
+func TestWatchCommand_TextFallbackFlag(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cfg.yaml")
+	if err := os.WriteFile(cfgPath, []byte("daemon:\n  socket_path: \"/tmp/cw.sock\"\n"), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	origText := runWatchTextMode
+	origTUI := runWatchTUIMode
+	t.Cleanup(func() {
+		runWatchTextMode = origText
+		runWatchTUIMode = origTUI
+	})
+
+	calledText := false
+	calledTUI := false
+	runWatchTextMode = func(_ *daemon.Config) error {
+		calledText = true
+		return nil
+	}
+	runWatchTUIMode = func(_ *daemon.Config) error {
+		calledTUI = true
+		return nil
+	}
+
+	cmd := newWatchCmd()
+	cmd.SetArgs([]string{"--text", "--config", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute watch --text: %v", err)
+	}
+
+	if cmd.Flag("text") == nil {
+		t.Fatal("expected --text flag to be registered")
+	}
+	if !calledText {
+		t.Fatal("expected --text mode handler to run")
+	}
+	if calledTUI {
+		t.Fatal("expected TUI mode handler to be skipped")
 	}
 }
