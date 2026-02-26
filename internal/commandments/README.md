@@ -9,8 +9,19 @@ The rules file is YAML. By default it lives at `~/.config/crabwise/commandments.
 - Preventative blocking is enabled by default in shipped config (`adapters.proxy.enabled: true`).
 - The default commandments file includes an enabled block rule:
   - `no-destructive-commands` (`enforcement: block`)
-- Blocking is preventative only for requests that pass through the proxy listener (`127.0.0.1:9119` by default).
+- Blocking is preventative only for **AI provider API requests** that the proxy intercepts via HTTP CONNECT + MITM TLS. The proxy binds to `127.0.0.1:9119` by default; route agent traffic through it with `crabwise wrap -- <command>` (which sets `HTTPS_PROXY` and related env vars).
+- The proxy selectively intercepts (MITMs) domains configured as providers (e.g. `api.openai.com`). All other HTTPS traffic is tunneled through transparently.
 - On observe-only adapters (log watcher), `block` is recorded as `warned` because the action already happened.
+
+### What blocking covers
+
+- **AI API requests** — the proxy intercepts the HTTP request from the agent to the AI provider. A `block` rule prevents the request from reaching the upstream provider (returns HTTP 403).
+- **Tool calls in request context** — when an agent sends a conversation back to the model, previous tool calls are included in the request body. The proxy classifies these (via the tool registry) and populates `tool_name`, `tool_category`, and `tool_effect` on the audit event before evaluating commandments.
+
+### What blocking does NOT cover
+
+- **Local tool/command execution** — when an AI agent executes a shell command (e.g. `rm -rf /`) on your machine, that is a local process, not an API call. The proxy cannot intercept it. These events are captured by the log watcher adapter after the fact; `block` enforcement downgrades to `warn`.
+- **Non-provider traffic** — HTTPS connections to domains not configured as providers (e.g. `github.com`, `npmjs.org`) are tunneled through without inspection.
 
 ## File layout
 
@@ -225,11 +236,19 @@ model:
 
 ### Block commandments
 
-Use `enforcement: block` to prevent actions before they execute. On the proxy adapter, a triggered block rule immediately returns HTTP 403 to the client and the request is never forwarded upstream. The blocked event is recorded in the audit trail with `outcome=blocked`.
+Use `enforcement: block` to prevent AI API requests before they reach the upstream provider. The forward proxy intercepts HTTPS traffic via HTTP CONNECT + MITM TLS for configured provider domains. When a block rule triggers, the proxy returns HTTP 403 to the agent and the request is never forwarded upstream. The blocked event is recorded in the audit trail with `outcome=blocked`.
 
 On observe-only adapters (log watcher), `block` downgrades to `warn` because the action has already occurred by the time the log is parsed. The event is still recorded with the triggered rule.
 
-For block enforcement to take effect preventatively, traffic must go through the proxy and at least one enabled commandment must use `enforcement: block`. The default install already satisfies this (`adapters.proxy.enabled: true` plus `no-destructive-commands` with `enforcement: block`).
+For block enforcement to work:
+1. The proxy must be enabled (`adapters.proxy.enabled: true`)
+2. Agent traffic must be routed through the proxy (use `crabwise wrap -- <command>` or set `HTTPS_PROXY` manually)
+3. The agent must connect to a domain in your `providers` config (e.g. `api.openai.com`)
+4. At least one commandment must use `enforcement: block`
+
+The default install satisfies (1) and (4) out of the box. Run `crabwise init` to generate the CA certificate, then use `crabwise wrap -- codex` to route Codex traffic through the proxy.
+
+> **Note:** Block rules on `tool_category: shell` / `tool_effect: execute` only trigger when those tool calls appear in the AI API request body (e.g. the agent sending prior tool results back to the model). They do **not** block the local execution of shell commands — that is a client-side concern (see the agent's own approval policy and sandbox settings).
 
 **Block direct push to main/master:**
 
