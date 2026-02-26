@@ -45,6 +45,7 @@ type Proxy struct {
 	providersMu    sync.RWMutex
 	certCache      *CertCache
 	httpSrv        *http.Server
+	httpSrvMu      sync.Mutex
 	metrics        Metrics
 	rawPayloads    RawPayloadWriter
 	extraRedactREs []*regexp.Regexp
@@ -190,17 +191,21 @@ func (p *Proxy) Start(ctx context.Context) error {
 		p.handleProxy(w, r)
 	})
 
-	p.httpSrv = &http.Server{
+	srv := &http.Server{
 		Addr:    p.cfg.Listen,
 		Handler: handler,
 	}
+
+	p.httpSrvMu.Lock()
+	p.httpSrv = srv
+	p.httpSrvMu.Unlock()
 
 	go func() {
 		<-ctx.Done()
 		_ = p.Stop()
 	}()
 
-	err := p.httpSrv.ListenAndServe()
+	err := srv.ListenAndServe()
 	if err == http.ErrServerClosed {
 		return nil
 	}
@@ -208,12 +213,18 @@ func (p *Proxy) Start(ctx context.Context) error {
 }
 
 func (p *Proxy) Stop() error {
-	if p.httpSrv == nil {
+	p.httpSrvMu.Lock()
+	srv := p.httpSrv
+	p.httpSrv = nil
+	p.httpSrvMu.Unlock()
+
+	if srv == nil {
 		return nil
 	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	return p.httpSrv.Shutdown(ctx)
+	return srv.Shutdown(ctx)
 }
 
 func (p *Proxy) Snapshot() map[string]interface{} {
