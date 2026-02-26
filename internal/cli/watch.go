@@ -2,9 +2,13 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
+	"strings"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/crabwise-ai/crabwise/internal/audit"
@@ -61,9 +65,11 @@ func runWatchText(cfg *daemon.Config) error {
 	defer signal.Stop(sigCh)
 
 	fmt.Println("Watching for events... (Ctrl+C to stop)")
+	var intentionalClose atomic.Bool
 
 	go func() {
 		<-sigCh
+		intentionalClose.Store(true)
 		_ = client.Close()
 	}()
 
@@ -90,7 +96,21 @@ func runWatchText(cfg *daemon.Config) error {
 		}
 	}
 
-	return scanner.Err()
+	return watchTextExitErr(intentionalClose.Load(), scanner.Err())
+}
+
+func watchTextExitErr(interrupted bool, err error) error {
+	if !interrupted {
+		return err
+	}
+	if err == nil || errors.Is(err, net.ErrClosed) || errors.Is(err, os.ErrClosed) {
+		return nil
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "use of closed network connection") || strings.Contains(msg, "file already closed") {
+		return nil
+	}
+	return err
 }
 
 func truncate(s string, max int) string {
