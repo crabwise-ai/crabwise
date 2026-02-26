@@ -24,13 +24,16 @@ type watchConn struct {
 type watchModelDeps struct {
 	Now            func() time.Time
 	ReconnectDelay time.Duration
+	StatusInterval time.Duration
 	Reconnect      func() tea.Msg
+	PollStatus     func() tea.Msg
 }
 
 type watchModel struct {
 	feed               []string
 	queueDepth         int
 	queueDropped       uint64
+	daemonUptime       string
 	startedAt          time.Time
 	triggerTimes       []time.Time
 	triggersLastMinute int
@@ -57,6 +60,42 @@ type reconnectResultMsg struct {
 	Err  error
 }
 
+type statusTickMsg struct{}
+
+type statusResultMsg struct {
+	QueueDepth   int
+	QueueDropped uint64
+	Uptime       string
+}
+
+func pollDaemonStatus(socketPath string) tea.Msg {
+	client, err := ipc.Dial(socketPath)
+	if err != nil {
+		return statusResultMsg{}
+	}
+	defer client.Close()
+
+	result, err := client.Call("status", nil)
+	if err != nil {
+		return statusResultMsg{}
+	}
+
+	var s struct {
+		QueueDepth   int    `json:"queue_depth"`
+		QueueDropped uint64 `json:"queue_dropped"`
+		Uptime       string `json:"uptime"`
+	}
+	if err := json.Unmarshal(result, &s); err != nil {
+		return statusResultMsg{}
+	}
+
+	return statusResultMsg{
+		QueueDepth:   s.QueueDepth,
+		QueueDropped: s.QueueDropped,
+		Uptime:       s.Uptime,
+	}
+}
+
 func runWatchTUI(cfg *daemon.Config) error {
 	conn, err := openWatchStream(cfg.Daemon.SocketPath)
 	if err != nil {
@@ -66,12 +105,16 @@ func runWatchTUI(cfg *daemon.Config) error {
 	m := newWatchModel(watchModelDeps{
 		Now:            time.Now,
 		ReconnectDelay: 1500 * time.Millisecond,
+		StatusInterval: 3 * time.Second,
 		Reconnect: func() tea.Msg {
 			reconnected, reconnectErr := openWatchStream(cfg.Daemon.SocketPath)
 			if reconnectErr != nil {
 				return reconnectResultMsg{Err: reconnectErr}
 			}
 			return reconnectResultMsg{Conn: reconnected}
+		},
+		PollStatus: func() tea.Msg {
+			return pollDaemonStatus(cfg.Daemon.SocketPath)
 		},
 	})
 	m.client = conn.client
@@ -116,6 +159,9 @@ func newWatchModel(deps watchModelDeps) watchModel {
 	if deps.ReconnectDelay <= 0 {
 		deps.ReconnectDelay = 1500 * time.Millisecond
 	}
+	if deps.StatusInterval <= 0 {
+		deps.StatusInterval = 3 * time.Second
+	}
 
 	now := deps.Now()
 	return watchModel{
@@ -126,10 +172,14 @@ func newWatchModel(deps watchModelDeps) watchModel {
 }
 
 func (m watchModel) Init() tea.Cmd {
-	if m.scanner == nil {
-		return nil
+	var cmds []tea.Cmd
+	if m.scanner != nil {
+		cmds = append(cmds, readWatchStreamCmd(m.scanner))
 	}
-	return readWatchStreamCmd(m.scanner)
+	cmds = append(cmds, tea.Tick(m.deps.StatusInterval, func(time.Time) tea.Msg {
+		return statusTickMsg{}
+	}))
+	return tea.Batch(cmds...)
 }
 
 func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -152,6 +202,24 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case auditEventMsg:
 		m.recordAuditEvent(msg.Event)
+		return m, nil
+
+	case statusTickMsg:
+		var cmds []tea.Cmd
+		if m.deps.PollStatus != nil {
+			cmds = append(cmds, func() tea.Msg { return m.deps.PollStatus() })
+		}
+		cmds = append(cmds, tea.Tick(m.deps.StatusInterval, func(time.Time) tea.Msg {
+			return statusTickMsg{}
+		}))
+		return m, tea.Batch(cmds...)
+
+	case statusResultMsg:
+		m.queueDepth = msg.QueueDepth
+		m.queueDropped = msg.QueueDropped
+		if msg.Uptime != "" {
+			m.daemonUptime = msg.Uptime
+		}
 		return m, nil
 
 	case streamDisconnectedMsg:
@@ -200,11 +268,15 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m watchModel) View() string {
 	title := lipgloss.NewStyle().Bold(true).Render("Crabwise Watch")
+	uptime := m.daemonUptime
+	if uptime == "" {
+		uptime = m.deps.Now().Sub(m.startedAt).Round(time.Second).String()
+	}
 	status := fmt.Sprintf(
 		"queue depth: %d | dropped: %d | uptime: %s | triggers/min: %d",
 		m.queueDepth,
 		m.queueDropped,
-		m.deps.Now().Sub(m.startedAt).Round(time.Second),
+		uptime,
 		m.triggersLastMinute,
 	)
 

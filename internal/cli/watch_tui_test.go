@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,6 +54,54 @@ func TestWatchModel_TracksTriggersOnlyForTriggeredEvents(t *testing.T) {
 	}
 	if next.triggersLastMinute != 1 {
 		t.Fatalf("expected trigger count 1, got %d", next.triggersLastMinute)
+	}
+}
+
+func TestWatchModel_StatusPollUpdatesStrip(t *testing.T) {
+	now := time.Now().UTC()
+	pollCalls := 0
+	m := newWatchModel(watchModelDeps{
+		Now: func() time.Time { return now },
+		PollStatus: func() tea.Msg {
+			pollCalls++
+			return statusResultMsg{
+				QueueDepth:   7,
+				QueueDropped: 42,
+				Uptime:       "5m30s",
+			}
+		},
+	})
+
+	// Simulate a status tick
+	updated, cmd := m.Update(statusTickMsg{})
+	if cmd == nil {
+		t.Fatal("expected batch cmd from status tick")
+	}
+	next := updated.(watchModel)
+
+	// Status hasn't been applied yet (tick schedules the poll)
+	// Execute the poll result
+	updated, _ = next.Update(statusResultMsg{
+		QueueDepth:   7,
+		QueueDropped: 42,
+		Uptime:       "5m30s",
+	})
+	next = updated.(watchModel)
+
+	if next.queueDepth != 7 {
+		t.Fatalf("expected queue depth 7, got %d", next.queueDepth)
+	}
+	if next.queueDropped != 42 {
+		t.Fatalf("expected queue dropped 42, got %d", next.queueDropped)
+	}
+	if next.daemonUptime != "5m30s" {
+		t.Fatalf("expected daemon uptime 5m30s, got %q", next.daemonUptime)
+	}
+
+	// View should show daemon uptime, not TUI-local uptime
+	view := next.View()
+	if !strings.Contains(view, "5m30s") {
+		t.Fatalf("expected daemon uptime in view, got: %s", view)
 	}
 }
 
