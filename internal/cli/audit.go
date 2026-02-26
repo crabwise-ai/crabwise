@@ -36,71 +36,48 @@ func newAuditCmd() *cobra.Command {
 				return fmt.Errorf("load config: %w", err)
 			}
 
+			// Machine-output modes always use plain output.
+			if verify {
+				client, err := ipc.Dial(cfg.Daemon.SocketPath)
+				if err != nil {
+					return fmt.Errorf("connect to daemon: %w", err)
+				}
+				defer client.Close()
+				return verifyIntegrity(client)
+			}
+
+			params := buildAuditParams(since, until, agent, action, session, outcome, triggered, limit)
+
+			if export == "json" {
+				client, err := ipc.Dial(cfg.Daemon.SocketPath)
+				if err != nil {
+					return fmt.Errorf("connect to daemon: %w", err)
+				}
+				defer client.Close()
+				return exportJSON(client, params)
+			}
+
+			// Interactive TUI when not in plain mode and no machine-output flags.
+			if !isPlain() {
+				initialMode := "events"
+				if cost {
+					initialMode = "cost"
+				}
+				return runAuditTUI(cfg.Daemon.SocketPath, params, initialMode)
+			}
+
+			// Plain text output.
 			client, err := ipc.Dial(cfg.Daemon.SocketPath)
 			if err != nil {
 				return fmt.Errorf("connect to daemon: %w", err)
 			}
 			defer client.Close()
 
-			if verify {
-				return verifyIntegrity(client)
-			}
-
-			params := map[string]interface{}{}
-			if since != "" {
-				params["since"] = since
-			}
-			if until != "" {
-				params["until"] = until
-			}
-			if agent != "" {
-				params["agent"] = agent
-			}
-			if action != "" {
-				params["action"] = action
-			}
-			if session != "" {
-				params["session"] = session
-			}
-			if outcome != "" {
-				params["outcome"] = outcome
-			}
-			if triggered {
-				params["triggered"] = true
-			}
-			if limit > 0 {
-				params["limit"] = limit
-			}
-
-			if export == "json" {
-				return exportJSON(client, params)
-			}
 			if cost {
 				return showCostSummary(client, params)
 			}
 
-			result, err := client.Call("audit.query", params)
-			if err != nil {
-				return fmt.Errorf("audit.query: %w", err)
-			}
-
-			var qr audit.QueryResult
-			if err := json.Unmarshal(result, &qr); err != nil {
-				return fmt.Errorf("parse result: %w", err)
-			}
-
-			if len(qr.Events) == 0 {
-				fmt.Println("No events found.")
-				return nil
-			}
-
-			for _, e := range qr.Events {
-				ts := e.Timestamp.Format("15:04:05")
-				fmt.Printf("%s [%s] %-18s %-10s %-8s %s\n", ts, e.AgentID, e.ActionType, e.Action, e.Outcome, e.SessionID)
-			}
-			fmt.Printf("\nTotal: %d events\n", qr.Total)
-
-			return nil
+			return runAuditPlain(client, params)
 		},
 	}
 
@@ -118,6 +95,60 @@ func newAuditCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&cost, "cost", false, "show cost summary grouped by day/agent/model")
 
 	return cmd
+}
+
+func buildAuditParams(since, until, agent, action, session, outcome string, triggered bool, limit int) map[string]interface{} {
+	params := map[string]interface{}{}
+	if since != "" {
+		params["since"] = since
+	}
+	if until != "" {
+		params["until"] = until
+	}
+	if agent != "" {
+		params["agent"] = agent
+	}
+	if action != "" {
+		params["action"] = action
+	}
+	if session != "" {
+		params["session"] = session
+	}
+	if outcome != "" {
+		params["outcome"] = outcome
+	}
+	if triggered {
+		params["triggered"] = true
+	}
+	if limit > 0 {
+		params["limit"] = limit
+	}
+	return params
+}
+
+func runAuditPlain(client *ipc.Client, params map[string]interface{}) error {
+	result, err := client.Call("audit.query", params)
+	if err != nil {
+		return fmt.Errorf("audit.query: %w", err)
+	}
+
+	var qr audit.QueryResult
+	if err := json.Unmarshal(result, &qr); err != nil {
+		return fmt.Errorf("parse result: %w", err)
+	}
+
+	if len(qr.Events) == 0 {
+		fmt.Println("No events found.")
+		return nil
+	}
+
+	for _, e := range qr.Events {
+		ts := e.Timestamp.Format("15:04:05")
+		fmt.Printf("%s [%s] %-18s %-10s %-8s %s\n", ts, e.AgentID, e.ActionType, e.Action, e.Outcome, e.SessionID)
+	}
+	fmt.Printf("\nTotal: %d events\n", qr.Total)
+
+	return nil
 }
 
 func verifyIntegrity(client *ipc.Client) error {
