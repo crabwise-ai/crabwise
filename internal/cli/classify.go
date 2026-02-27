@@ -7,6 +7,7 @@ import (
 	"github.com/crabwise-ai/crabwise/configs"
 	"github.com/crabwise-ai/crabwise/internal/classify"
 	"github.com/crabwise-ai/crabwise/internal/daemon"
+	"github.com/crabwise-ai/crabwise/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -39,13 +40,27 @@ func newClassifyCmd() *cobra.Command {
 				providerDisplay = "_default"
 			}
 
-			fmt.Printf("Tool:      %s\n", args[0])
-			fmt.Printf("Provider:  %s\n", providerDisplay)
-			fmt.Printf("Arg keys:  %s\n", strings.Join(argKeys, ","))
-			fmt.Printf("Category:  %s\n", result.Category)
-			fmt.Printf("Effect:    %s\n", result.Effect)
-			fmt.Printf("Source:    %s\n", result.ClassificationSource)
-			fmt.Printf("Taxonomy:  %s\n", result.TaxonomyVersion)
+			if isPlain() {
+				fmt.Printf("Tool:      %s\n", args[0])
+				fmt.Printf("Provider:  %s\n", providerDisplay)
+				fmt.Printf("Arg keys:  %s\n", strings.Join(argKeys, ","))
+				fmt.Printf("Category:  %s\n", result.Category)
+				fmt.Printf("Effect:    %s\n", result.Effect)
+				fmt.Printf("Source:    %s\n", result.ClassificationSource)
+				fmt.Printf("Taxonomy:  %s\n", result.TaxonomyVersion)
+			} else {
+				body := fmt.Sprintf(
+					"%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s",
+					tui.StyleHeading.Render("Tool:"), tui.StyleBody.Render(args[0]),
+					tui.StyleHeading.Render("Provider:"), tui.StyleBody.Render(providerDisplay),
+					tui.StyleHeading.Render("Arg keys:"), tui.StyleBody.Render(strings.Join(argKeys, ",")),
+					tui.StyleHeading.Render("Category:"), tui.StyleBody.Render(result.Category),
+					tui.StyleHeading.Render("Effect:"), tui.StyleBody.Render(result.Effect),
+					tui.StyleHeading.Render("Source:"), tui.StyleBody.Render(result.ClassificationSource),
+					tui.StyleHeading.Render("Taxonomy:"), tui.StyleBody.Render(result.TaxonomyVersion),
+				)
+				fmt.Println(tui.RenderPanel("Classification", body))
+			}
 
 			return nil
 		},

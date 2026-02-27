@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"github.com/crabwise-ai/crabwise/internal/daemon"
+	"github.com/crabwise-ai/crabwise/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -19,6 +20,17 @@ func newStartCmd() *cobra.Command {
 			cfg, err := daemon.LoadConfig(configPath)
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
+			}
+
+			if !isPlain() {
+				fmt.Println(tui.RenderBannerStatic(Version))
+				fmt.Println()
+				fmt.Printf("  %s %s\n", tui.StatusIcon("connecting"), tui.StyleBody.Render("Starting daemon..."))
+				fmt.Printf("  %s %s\n", tui.StatusIcon("connecting"), tui.StyleBody.Render("Initializing log watcher..."))
+				if cfg.Adapters.Proxy.Listen != "" {
+					fmt.Printf("  %s %s\n", tui.StatusIcon("connecting"), tui.StyleBody.Render("Configuring proxy on "+cfg.Adapters.Proxy.Listen))
+				}
+				fmt.Println()
 			}
 
 			log.SetFlags(log.Ltime | log.Lshortfile)

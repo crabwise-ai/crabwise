@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/crabwise-ai/crabwise/internal/daemon"
+	"github.com/crabwise-ai/crabwise/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -43,12 +44,21 @@ func newStopCmd() *cobra.Command {
 				return fmt.Errorf("send SIGTERM to %d: %w", pid, err)
 			}
 
-			fmt.Printf("Sent SIGTERM to pid %d, waiting...\n", pid)
+			styled := !isPlain()
+			if styled {
+				fmt.Printf("  %s %s\n", tui.StyleMuted.Render("◎"), tui.StyleBody.Render(fmt.Sprintf("Stopping daemon (pid %d)...", pid)))
+			} else {
+				fmt.Printf("Sent SIGTERM to pid %d, waiting...\n", pid)
+			}
 
 			// Wait for process to exit
 			for i := 0; i < 30; i++ {
 				if err := process.Signal(syscall.Signal(0)); err != nil {
-					fmt.Println("Daemon stopped.")
+					if styled {
+						fmt.Printf("  %s %s\n", tui.StyleSuccess.Render("✓"), tui.StyleBody.Render("Daemon stopped"))
+					} else {
+						fmt.Println("Daemon stopped.")
+					}
 					return nil
 				}
 				time.Sleep(100 * time.Millisecond)
