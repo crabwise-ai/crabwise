@@ -48,7 +48,8 @@ func newStartCmd() *cobra.Command {
 					}
 				} else if !status.Trusted {
 					commands := certs.CommandsForOS(cfg.Adapters.Proxy.CACert)
-					if isPlain() {
+					switch {
+					case isPlain():
 						fmt.Printf("WARNING: Crabwise CA is not trusted (%s).\n", status.Reason)
 						if commands.SystemTrustCmd != "" {
 							fmt.Printf("To trust it, run:\n%s\n", commands.SystemTrustCmd)
@@ -57,18 +58,18 @@ func newStartCmd() *cobra.Command {
 							fmt.Printf("Manually add the CA to your system trust store:\n%s\n", status.CertPath)
 						}
 						fmt.Println()
-						} else if commands.SystemTrustCmd != "" {
+					case commands.SystemTrustCmd != "":
 						body := "Crabwise is configured to intercept HTTPS (MITM).\n\n" +
 							"Copy/paste:\n" + commands.SystemTrustCmd + "\n\n" +
 							"Or copy it:\ncrabwise cert trust --copy"
 						fmt.Println(tui.RenderPanel("Action required: Trust the CA ("+commands.OS+")", body))
 						fmt.Println()
-						} else {
+					default:
 						body := "Crabwise is configured to intercept HTTPS (MITM).\n\n" +
 							"Manually add this CA to your system trust store:\n" + status.CertPath
 						fmt.Println(tui.RenderPanel("Action required: Trust the CA", body))
 						fmt.Println()
-						}
+					}
 				}
 			}
 
