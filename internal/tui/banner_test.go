@@ -15,7 +15,7 @@ func TestRenderBannerStatic_ContainsExpectedText(t *testing.T) {
 		"Crabwise AI v0.4.2",
 		"Local-first AI agent governance",
 		"github.com/crabwise-ai/crabwise",
-		"▀██████████▀",
+		CrabArt[2], // crab art body line
 	}
 	for _, want := range checks {
 		if !strings.Contains(out, want) {
@@ -24,11 +24,11 @@ func TestRenderBannerStatic_ContainsExpectedText(t *testing.T) {
 	}
 }
 
-func TestRenderBannerStatic_HasFourLines(t *testing.T) {
+func TestRenderBannerStatic_HasFiveLines(t *testing.T) {
 	out := RenderBannerStatic("1.0.0")
 	lines := strings.Split(out, "\n")
-	if len(lines) != 4 {
-		t.Fatalf("expected 4 lines, got %d:\n%s", len(lines), out)
+	if len(lines) != 5 {
+		t.Fatalf("expected 5 lines, got %d:\n%s", len(lines), out)
 	}
 }
 

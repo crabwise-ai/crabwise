@@ -231,12 +231,7 @@ func (m statusTUIModel) View() string {
 
 // renderStatusBanner renders the crab art with "Status" as the heading.
 func renderStatusBanner() string {
-	art := []string{
-		`▄█▀      ▀█▄`,
-		`█▄█ ▄  ▄ █▄█`,
-		`█▀ ▄█▄▄█▄ ▀█`,
-		`▀██████████▀`,
-	}
+	art := tui.CrabArt
 	gap := "  "
 	rightText := []string{
 		tui.StyleHeading.Render("Status"),
