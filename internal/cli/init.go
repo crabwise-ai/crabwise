@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/crabwise-ai/crabwise/configs"
-	"github.com/crabwise-ai/crabwise/internal/adapter/proxy"
+	"github.com/crabwise-ai/crabwise/internal/certs"
 	"github.com/crabwise-ai/crabwise/internal/daemon"
 	"github.com/crabwise-ai/crabwise/internal/tui"
 	"github.com/spf13/cobra"
@@ -87,7 +87,7 @@ func newInitCmd() *cobra.Command {
 					fmt.Printf("CA certificate already exists at %s\n", certPath)
 				}
 			} else {
-				if err := proxy.GenerateCA(certPath, keyPath); err != nil {
+				if err := certs.GenerateCA(certPath, keyPath); err != nil {
 					return fmt.Errorf("generate CA: %w", err)
 				}
 				if styled {
@@ -97,23 +97,24 @@ func newInitCmd() *cobra.Command {
 					fmt.Printf("CA certificate generated at %s\n", certPath)
 					fmt.Printf("CA key generated at %s\n", keyPath)
 				}
+			}
 
-				trustBody := fmt.Sprintf(
-					"Linux:   sudo cp %s /usr/local/share/ca-certificates/crabwise.crt && sudo update-ca-certificates\n"+
-						"macOS:   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain %s\n"+
-						"Node.js: export NODE_EXTRA_CA_CERTS=%s\n"+
-						"Or use:  crabwise wrap -- <command>  (sets proxy env vars automatically)",
-					certPath, certPath, certPath)
-
+			commands := certs.CommandsForOS(certPath)
+			status := certs.CheckTrust(certPath, keyPath)
+			if !status.Trusted && commands.SystemTrustCmd != "" {
 				if styled {
+					body := "Copy/paste:\n" + commands.SystemTrustCmd + "\n\n" +
+						"Node.js (optional):\n" + commands.NodeExtraCACerts + "\n\n" +
+						"Or copy it:\ncrabwise cert trust --copy\n" +
+						"Or wrap your agent:\ncrabwise wrap -- <command>"
 					fmt.Println()
-					fmt.Println(tui.RenderPanel("Trust the CA", trustBody))
+					fmt.Println(tui.RenderPanel("Trust the CA ("+commands.OS+")", body))
 				} else {
-					fmt.Printf("\nTo trust the CA certificate:\n")
-					fmt.Printf("  Linux:   sudo cp %s /usr/local/share/ca-certificates/crabwise.crt && sudo update-ca-certificates\n", certPath)
-					fmt.Printf("  macOS:   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain %s\n", certPath)
-					fmt.Printf("  Node.js: export NODE_EXTRA_CA_CERTS=%s\n", certPath)
-					fmt.Printf("Or use: crabwise wrap -- <command>  (sets proxy env vars automatically)\n")
+					fmt.Printf("\nTo trust the CA certificate (%s):\n", commands.OS)
+					fmt.Printf("%s\n", commands.SystemTrustCmd)
+					fmt.Printf("\nNode.js (optional):\n%s\n", commands.NodeExtraCACerts)
+					fmt.Printf("\nOr copy it:\ncrabwise cert trust --copy\n")
+					fmt.Printf("Or wrap your agent:\ncrabwise wrap -- <command>\n")
 				}
 			}
 
