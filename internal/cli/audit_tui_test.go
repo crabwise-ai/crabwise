@@ -77,9 +77,9 @@ func TestAuditTUIModel_EventsLoaded(t *testing.T) {
 		t.Fatalf("expected empty cost for tool_call, got %q", rows[0][5])
 	}
 
-	// Verify outcome column contains icon
-	if !strings.Contains(rows[2][4], "blocked") {
-		t.Fatalf("expected 'blocked' in outcome column, got %q", rows[2][4])
+	// Verify outcome column uses readable plain text.
+	if rows[2][4] != "BLOCKED" {
+		t.Fatalf("expected 'BLOCKED' in outcome column, got %q", rows[2][4])
 	}
 
 	// View should contain key elements

@@ -350,7 +350,7 @@ func auditEventsToRows(events []*audit.AuditEvent) []table.Row {
 		agent := tui.Truncate(e.AgentID, 14)
 		actionType := string(e.ActionType)
 		action := tui.Truncate(e.Action, 11)
-		outcome := tui.StatusIcon(string(e.Outcome)) + " " + string(e.Outcome)
+		outcome := formatAuditOutcome(e.Outcome)
 		cost := ""
 		if e.ActionType == audit.ActionAIRequest && e.CostUSD > 0 {
 			cost = tui.FormatCost(e.CostUSD)
@@ -358,6 +358,21 @@ func auditEventsToRows(events []*audit.AuditEvent) []table.Row {
 		rows[i] = table.Row{ts, agent, actionType, action, outcome, cost}
 	}
 	return rows
+}
+
+func formatAuditOutcome(outcome audit.Outcome) string {
+	switch outcome {
+	case audit.OutcomeBlocked:
+		return "BLOCKED"
+	case audit.OutcomeWarned:
+		return "WARNED"
+	case audit.OutcomeFailure:
+		return "FAILED"
+	case audit.OutcomeSuccess:
+		return "SUCCESS"
+	default:
+		return strings.ToUpper(string(outcome))
+	}
 }
 
 func auditCostToRows(costRows []audit.CostSummaryRow) []table.Row {
