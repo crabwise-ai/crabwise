@@ -10,7 +10,7 @@ import (
 )
 
 // CrabArt holds the raw crab ASCII art lines for reuse in custom banners.
-// Compact 5×10 version (downsampled from 10×20).
+// Compact 4×10 version.
 var CrabArt = []string{
 	`▄█▀    ▀█▄`,
 	`█ ▂▂█▂█▂ █`,

@@ -24,11 +24,11 @@ func TestRenderBannerStatic_ContainsExpectedText(t *testing.T) {
 	}
 }
 
-func TestRenderBannerStatic_HasFiveLines(t *testing.T) {
+func TestRenderBannerStatic_HasFourLines(t *testing.T) {
 	out := RenderBannerStatic("1.0.0")
 	lines := strings.Split(out, "\n")
-	if len(lines) != 5 {
-		t.Fatalf("expected 5 lines, got %d:\n%s", len(lines), out)
+	if len(lines) != 4 {
+		t.Fatalf("expected 4 lines, got %d:\n%s", len(lines), out)
 	}
 }
 
