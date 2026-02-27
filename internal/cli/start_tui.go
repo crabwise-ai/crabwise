@@ -486,7 +486,7 @@ func renderStartBanner(version string) string {
 	art := tui.CrabArt
 	gap := "  "
 	rightText := []string{
-		tui.StyleHeading.Render("Start"),
+		tui.StyleHeading.Render("Start Daemon"),
 		tui.StyleMuted.Render("Crabwise v" + version),
 		tui.StyleDivider(27),
 		tui.StyleMuted.Render("Foreground daemon"),
