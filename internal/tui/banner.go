@@ -19,7 +19,8 @@ var CrabArt = []string{
 }
 
 const (
-	bannerTickInterval = 60 * time.Millisecond
+	// BannerTickInterval is the ripple animation frame rate (slower = more visible wave).
+	BannerTickInterval = 150 * time.Millisecond
 	bannerGap          = "   " // gap between art and text
 )
 
@@ -28,10 +29,17 @@ type BannerDone struct{}
 
 type bannerTickMsg struct{}
 
-// Block cycle for ripple: light → full (░ ▒ ▓ █).
-var blockCycle = []rune{'░', '▒', '▓', '█'}
+// rippleColors: sequential wave gradient (dim → crest → bright).
+// Extra steps make the wave sweep more visible.
+var rippleColors = []lipgloss.Color{
+	ColorDriftGray,
+	ColorDriftGray,
+	ColorWarmGold,
+	ColorWarmGold,
+	ColorCrabOrange,
+}
 
-// blockChars are runes in CrabArt that get replaced by the cycling blocks.
+// blockChars are runes in CrabArt that get the color ripple (shape preserved).
 var blockChars = map[rune]bool{
 	'▄': true, '█': true, '▀': true, '▂': true, '▓': true,
 }
@@ -51,7 +59,7 @@ func NewBannerModel(version string) BannerModel {
 }
 
 func (m BannerModel) Init() tea.Cmd {
-	return tea.Tick(bannerTickInterval, func(time.Time) tea.Msg {
+	return tea.Tick(BannerTickInterval, func(time.Time) tea.Msg {
 		return bannerTickMsg{}
 	})
 }
@@ -59,7 +67,7 @@ func (m BannerModel) Init() tea.Cmd {
 func (m BannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if _, ok := msg.(bannerTickMsg); ok {
 		m.tick++
-		return m, tea.Tick(bannerTickInterval, func(time.Time) tea.Msg {
+		return m, tea.Tick(BannerTickInterval, func(time.Time) tea.Msg {
 			return bannerTickMsg{}
 		})
 	}
@@ -88,10 +96,9 @@ func (m BannerModel) renderArtLine(line string, startPos int) (string, int) {
 	pos := startPos
 	for _, r := range runes {
 		if blockChars[r] {
-			phase := (m.tick + pos) % len(blockCycle)
-			block := blockCycle[phase]
-			style := lipgloss.NewStyle().Foreground(ColorCrabOrange)
-			b.WriteString(style.Render(string(block)))
+			phase := (m.tick + pos) % len(rippleColors)
+			style := lipgloss.NewStyle().Foreground(rippleColors[phase])
+			b.WriteString(style.Render(string(r)))
 			pos++
 		} else {
 			style := lipgloss.NewStyle().Foreground(ColorCrabOrange)
@@ -110,9 +117,10 @@ func bannerRightText(version string) []string {
 	}
 }
 
-// CrabArtRipple returns CrabArt with block characters cycled for ripple effect.
-// tick is the frame counter; increment each tick for animation.
-func CrabArtRipple(tick int) []string {
+// CrabArtRippleStyled returns CrabArt with color ripple applied (shape preserved).
+// Block characters keep their shape (▄ █ ▀ ▂ ▓) but cycle through DriftGray → WarmGold → CrabOrange.
+// Returns styled strings ready to concatenate with right text.
+func CrabArtRippleStyled(tick int) []string {
 	result := make([]string, len(CrabArt))
 	pos := 0
 	for i, line := range CrabArt {
@@ -120,11 +128,13 @@ func CrabArtRipple(tick int) []string {
 		var b strings.Builder
 		for _, r := range runes {
 			if blockChars[r] {
-				phase := (tick + pos) % len(blockCycle)
-				b.WriteRune(blockCycle[phase])
+				phase := (tick + pos) % len(rippleColors)
+				style := lipgloss.NewStyle().Foreground(rippleColors[phase])
+				b.WriteString(style.Render(string(r)))
 				pos++
 			} else {
-				b.WriteRune(r)
+				style := lipgloss.NewStyle().Foreground(ColorCrabOrange)
+				b.WriteString(style.Render(string(r)))
 			}
 		}
 		result[i] = b.String()

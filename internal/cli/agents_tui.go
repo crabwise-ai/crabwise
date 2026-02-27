@@ -8,7 +8,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/crabwise-ai/crabwise/internal/discovery"
 	"github.com/crabwise-ai/crabwise/internal/ipc"
 	"github.com/crabwise-ai/crabwise/internal/tui"
@@ -55,7 +54,7 @@ func agentsColumns(width int) []table.Column {
 func (m agentsTUIModel) Init() tea.Cmd {
 	return tea.Batch(
 		loadAgents(m.socketPath),
-		tea.Tick(60*time.Millisecond, func(time.Time) tea.Msg {
+		tea.Tick(tui.BannerTickInterval, func(time.Time) tea.Msg {
 			return agentsBannerTickMsg{}
 		}),
 	)
@@ -141,10 +140,9 @@ func renderAgentsBanner(bannerTick int) string {
 	rightText := []string{
 		tui.StyleHeading.Render("Agents"),
 	}
-	art := tui.CrabArtRipple(bannerTick)
+	styledArt := tui.CrabArtRippleStyled(bannerTick)
 	var lines []string
-	for i, a := range art {
-		styled := lipgloss.NewStyle().Foreground(tui.ColorCrabOrange).Render(a)
+	for i, styled := range styledArt {
 		right := ""
 		if i < len(rightText) {
 			right = rightText[i]

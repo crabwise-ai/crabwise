@@ -76,7 +76,7 @@ func (m statusTUIModel) Init() tea.Cmd {
 		tea.Tick(m.pollInterval, func(time.Time) tea.Msg {
 			return statusTUITickMsg{}
 		}),
-		tea.Tick(60*time.Millisecond, func(time.Time) tea.Msg {
+		tea.Tick(tui.BannerTickInterval, func(time.Time) tea.Msg {
 			return bannerTickMsg{}
 		}),
 	)
@@ -244,14 +244,13 @@ func (m statusTUIModel) View() string {
 
 // renderStatusBanner renders the crab art with "Status" as the heading.
 func renderStatusBanner(bannerTick int) string {
-	art := tui.CrabArtRipple(bannerTick)
+	styledArt := tui.CrabArtRippleStyled(bannerTick)
 	gap := "  "
 	rightText := []string{
 		tui.StyleHeading.Render("Status"),
 	}
 	var lines []string
-	for i, a := range art {
-		styled := lipgloss.NewStyle().Foreground(tui.ColorCrabOrange).Render(a)
+	for i, styled := range styledArt {
 		right := ""
 		if i < len(rightText) {
 			right = rightText[i]

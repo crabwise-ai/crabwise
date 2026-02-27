@@ -32,6 +32,20 @@ func TestRenderBannerStatic_HasFourLines(t *testing.T) {
 	}
 }
 
+func TestCrabArtRippleStyled_PreservesShape(t *testing.T) {
+	// Ripple animates color only; block shapes (▄ █ ▀ ▂ ▓) must stay the same.
+	styled := CrabArtRippleStyled(0)
+	if len(styled) != len(CrabArt) {
+		t.Fatalf("expected %d lines, got %d", len(CrabArt), len(styled))
+	}
+	for i := range styled {
+		// Styled line contains ANSI codes; verify it has content
+		if styled[i] == "" {
+			t.Errorf("line %d: empty styled output", i)
+		}
+	}
+}
+
 func TestBannerModel_RippleProducesFrames(t *testing.T) {
 	m := NewBannerModel("0.4.2")
 

@@ -9,7 +9,6 @@ import (
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/crabwise-ai/crabwise/internal/audit"
 	"github.com/crabwise-ai/crabwise/internal/ipc"
 	"github.com/crabwise-ai/crabwise/internal/tui"
@@ -130,7 +129,7 @@ func (m auditTUIModel) Init() tea.Cmd {
 	}
 	return tea.Batch(
 		loadCmd,
-		tea.Tick(60*time.Millisecond, func(time.Time) tea.Msg {
+		tea.Tick(tui.BannerTickInterval, func(time.Time) tea.Msg {
 			return auditBannerTickMsg{}
 		}),
 	)
@@ -341,16 +340,15 @@ func (m auditTUIModel) View() string {
 
 func renderAuditBanner(heading, rightInfo string, bannerTick int) string {
 	gap := "  "
-	art := tui.CrabArtRipple(bannerTick)
-	rightText := make([]string, len(art))
+	styledArt := tui.CrabArtRippleStyled(bannerTick)
+	rightText := make([]string, len(styledArt))
 	rightText[0] = tui.StyleHeading.Render(heading)
 	if rightInfo != "" {
 		rightText[0] += "  " + tui.StyleMuted.Render(rightInfo)
 	}
 
 	var lines []string
-	for i, a := range art {
-		styled := lipgloss.NewStyle().Foreground(tui.ColorCrabOrange).Render(a)
+	for i, styled := range styledArt {
 		right := ""
 		if i < len(rightText) {
 			right = rightText[i]

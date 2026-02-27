@@ -8,7 +8,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/crabwise-ai/crabwise/internal/daemon"
 	"github.com/crabwise-ai/crabwise/internal/ipc"
 	"github.com/crabwise-ai/crabwise/internal/tui"
@@ -64,7 +63,7 @@ func commandmentsColumns() []table.Column {
 func (m commandmentsTUIModel) Init() tea.Cmd {
 	return tea.Batch(
 		loadCommandments(m.socketPath),
-		tea.Tick(60*time.Millisecond, func(time.Time) tea.Msg {
+		tea.Tick(tui.BannerTickInterval, func(time.Time) tea.Msg {
 			return commandmentsBannerTickMsg{}
 		}),
 	)
@@ -170,7 +169,7 @@ func (m commandmentsTUIModel) View() string {
 }
 
 func renderCommandmentsBanner(ruleCount int, bannerTick int) string {
-	art := tui.CrabArtRipple(bannerTick)
+	styledArt := tui.CrabArtRippleStyled(bannerTick)
 	gap := "  "
 	rightText := []string{
 		tui.StyleHeading.Render("Commandments"),
@@ -178,8 +177,7 @@ func renderCommandmentsBanner(ruleCount int, bannerTick int) string {
 		tui.StyleMuted.Render(fmt.Sprintf("%d rules loaded", ruleCount)),
 	}
 	var lines []string
-	for i, a := range art {
-		styled := lipgloss.NewStyle().Foreground(tui.ColorCrabOrange).Render(a)
+	for i, styled := range styledArt {
 		right := ""
 		if i < len(rightText) {
 			right = rightText[i]
