@@ -21,41 +21,48 @@ func newStatusCmd() *cobra.Command {
 				return fmt.Errorf("load config: %w", err)
 			}
 
-			client, err := ipc.Dial(cfg.Daemon.SocketPath)
-			if err != nil {
-				fmt.Println("Daemon is not running.")
-				return nil
+			if isPlain() {
+				return runStatusPlain(cfg)
 			}
-			defer client.Close()
-
-			result, err := client.Call("status", nil)
-			if err != nil {
-				return fmt.Errorf("status call: %w", err)
-			}
-
-			var status map[string]interface{}
-			if err := json.Unmarshal(result, &status); err != nil {
-				return fmt.Errorf("parse status: %w", err)
-			}
-
-			fmt.Printf("Status:       running\n")
-			fmt.Printf("Uptime:       %v\n", status["uptime"])
-			fmt.Printf("PID:          %v\n", status["pid"])
-			fmt.Printf("Agents:       %v\n", status["agents"])
-			fmt.Printf("Queue depth:  %v\n", status["queue_depth"])
-			fmt.Printf("Dropped:      %v\n", status["queue_dropped"])
-			fmt.Printf("Unclassified: %v\n", status["unclassified_tool_count"])
-			if _, ok := status["proxy_requests_total"]; ok {
-				fmt.Printf("Proxy reqs:   %v\n", status["proxy_requests_total"])
-				fmt.Printf("Proxy blocked:%v\n", status["proxy_blocked_total"])
-				fmt.Printf("Proxy errors: %v\n", status["proxy_upstream_errors"])
-				fmt.Printf("Map degraded: %v\n", status["mapping_degraded_count"])
-			}
-
-			return nil
+			return runStatusTUI(cfg)
 		},
 	}
 
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "config file path")
 	return cmd
+}
+
+func runStatusPlain(cfg *daemon.Config) error {
+	client, err := ipc.Dial(cfg.Daemon.SocketPath)
+	if err != nil {
+		fmt.Println("Daemon is not running.")
+		return nil
+	}
+	defer client.Close()
+
+	result, err := client.Call("status", nil)
+	if err != nil {
+		return fmt.Errorf("status call: %w", err)
+	}
+
+	var status map[string]interface{}
+	if err := json.Unmarshal(result, &status); err != nil {
+		return fmt.Errorf("parse status: %w", err)
+	}
+
+	fmt.Printf("Status:       running\n")
+	fmt.Printf("Uptime:       %v\n", status["uptime"])
+	fmt.Printf("PID:          %v\n", status["pid"])
+	fmt.Printf("Agents:       %v\n", status["agents"])
+	fmt.Printf("Queue depth:  %v\n", status["queue_depth"])
+	fmt.Printf("Dropped:      %v\n", status["queue_dropped"])
+	fmt.Printf("Unclassified: %v\n", status["unclassified_tool_count"])
+	if _, ok := status["proxy_requests_total"]; ok {
+		fmt.Printf("Proxy reqs:   %v\n", status["proxy_requests_total"])
+		fmt.Printf("Proxy blocked:%v\n", status["proxy_blocked_total"])
+		fmt.Printf("Proxy errors: %v\n", status["proxy_upstream_errors"])
+		fmt.Printf("Map degraded: %v\n", status["mapping_degraded_count"])
+	}
+
+	return nil
 }

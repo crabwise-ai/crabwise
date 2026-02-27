@@ -7,6 +7,7 @@ import (
 	"github.com/crabwise-ai/crabwise/internal/audit"
 	"github.com/crabwise-ai/crabwise/internal/daemon"
 	"github.com/crabwise-ai/crabwise/internal/ipc"
+	"github.com/crabwise-ai/crabwise/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -32,37 +33,49 @@ func newCommandmentsListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List active commandments",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := dialCommandmentsClient(configPath)
-			if err != nil {
-				return err
-			}
-			defer client.Close()
-
-			result, err := client.Call("commandments.list", nil)
-			if err != nil {
-				return fmt.Errorf("commandments.list: %w", err)
+			if !isPlain() {
+				cfg, err := daemon.LoadConfig(configPath)
+				if err != nil {
+					return fmt.Errorf("load config: %w", err)
+				}
+				return runCommandmentsTUI(cfg.Daemon.SocketPath)
 			}
 
-			var rules []daemon.CommandmentRuleSummary
-			if err := json.Unmarshal(result, &rules); err != nil {
-				return fmt.Errorf("parse result: %w", err)
-			}
-
-			if len(rules) == 0 {
-				fmt.Println("No commandments loaded.")
-				return nil
-			}
-
-			fmt.Printf("%-32s %-11s %-8s %s\n", "NAME", "ENFORCEMENT", "PRIORITY", "ENABLED")
-			for _, rule := range rules {
-				fmt.Printf("%-32s %-11s %-8d %t\n", rule.Name, rule.Enforcement, rule.Priority, rule.Enabled)
-			}
-			return nil
+			return commandmentsListPlain(configPath)
 		},
 	}
 
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "config file path")
 	return cmd
+}
+
+func commandmentsListPlain(configPath string) error {
+	client, err := dialCommandmentsClient(configPath)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	result, err := client.Call("commandments.list", nil)
+	if err != nil {
+		return fmt.Errorf("commandments.list: %w", err)
+	}
+
+	var rules []daemon.CommandmentRuleSummary
+	if err := json.Unmarshal(result, &rules); err != nil {
+		return fmt.Errorf("parse result: %w", err)
+	}
+
+	if len(rules) == 0 {
+		fmt.Println("No commandments loaded.")
+		return nil
+	}
+
+	fmt.Printf("%-32s %-11s %-8s %s\n", "NAME", "ENFORCEMENT", "PRIORITY", "ENABLED")
+	for _, rule := range rules {
+		fmt.Printf("%-32s %-11s %-8d %t\n", rule.Name, rule.Enforcement, rule.Priority, rule.Enabled)
+	}
+	return nil
 }
 
 func newCommandmentsTestCmd() *cobra.Command {
@@ -91,19 +104,41 @@ func newCommandmentsTestCmd() *cobra.Command {
 				return fmt.Errorf("parse result: %w", err)
 			}
 
-			fmt.Printf("Evaluated: %v\n", eval.Evaluated)
-			if len(eval.Triggered) == 0 {
-				fmt.Println("Triggered: []")
-				return nil
-			}
-
-			fmt.Println("Triggered:")
-			for _, tr := range eval.Triggered {
-				fmt.Printf("- %s (%s)", tr.Name, tr.Enforcement)
-				if tr.Message != "" {
-					fmt.Printf(": %s", tr.Message)
+			if isPlain() {
+				fmt.Printf("Evaluated: %v\n", eval.Evaluated)
+				if len(eval.Triggered) == 0 {
+					fmt.Println("Triggered: []")
+					return nil
 				}
-				fmt.Println()
+				fmt.Println("Triggered:")
+				for _, tr := range eval.Triggered {
+					fmt.Printf("- %s (%s)", tr.Name, tr.Enforcement)
+					if tr.Message != "" {
+						fmt.Printf(": %s", tr.Message)
+					}
+					fmt.Println()
+				}
+			} else {
+				fmt.Printf("  %s %s\n", tui.StyleMuted.Render("Evaluated:"), tui.StyleBody.Render(fmt.Sprintf("%v", eval.Evaluated)))
+				if len(eval.Triggered) == 0 {
+					fmt.Printf("  %s %s\n", tui.StyleSuccess.Render("✓"), tui.StyleBody.Render("No blocks triggered"))
+					return nil
+				}
+				fmt.Printf("  %s\n", tui.StyleMuted.Render("Triggered:"))
+				for _, tr := range eval.Triggered {
+					var icon string
+					switch tr.Enforcement {
+					case "block":
+						icon = tui.StyleError.Render("✖")
+					default:
+						icon = tui.StyleWarning.Render("⚠")
+					}
+					line := fmt.Sprintf("  %s %s (%s)", icon, tui.StyleBody.Bold(true).Render(tr.Name), tr.Enforcement)
+					if tr.Message != "" {
+						line += ": " + tui.StyleMuted.Render(tr.Message)
+					}
+					fmt.Println(line)
+				}
 			}
 
 			return nil
@@ -140,7 +175,11 @@ func newCommandmentsReloadCmd() *cobra.Command {
 				return fmt.Errorf("parse result: %w", err)
 			}
 
-			fmt.Printf("Reloaded commandments (%d rules).\n", out.RulesLoaded)
+			if isPlain() {
+				fmt.Printf("Reloaded commandments (%d rules).\n", out.RulesLoaded)
+			} else {
+				fmt.Printf("  %s %s\n", tui.StyleSuccess.Render("✓"), tui.StyleBody.Render(fmt.Sprintf("Loaded %d rules", out.RulesLoaded)))
+			}
 			return nil
 		},
 	}

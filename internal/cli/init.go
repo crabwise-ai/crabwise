@@ -8,6 +8,7 @@ import (
 	"github.com/crabwise-ai/crabwise/configs"
 	"github.com/crabwise-ai/crabwise/internal/adapter/proxy"
 	"github.com/crabwise-ai/crabwise/internal/daemon"
+	"github.com/crabwise-ai/crabwise/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -52,28 +53,17 @@ func newInitCmd() *cobra.Command {
 				return fmt.Errorf("write openai mapping: %w", err)
 			}
 
-			if configWritten {
-				fmt.Printf("Config written to %s\n", configPath)
-			} else {
-				fmt.Printf("Config already exists at %s\n", configPath)
+			styled := !isPlain()
+
+			if styled {
+				fmt.Println(tui.RenderBannerStatic(Version))
+				fmt.Println()
 			}
 
-			if commandmentsWritten {
-				fmt.Printf("Commandments written to %s\n", commandmentsPath)
-			} else {
-				fmt.Printf("Commandments already exist at %s\n", commandmentsPath)
-			}
-
-			if toolRegistryWritten {
-				fmt.Printf("Tool registry written to %s\n", toolRegistryPath)
-			} else {
-				fmt.Printf("Tool registry already exists at %s\n", toolRegistryPath)
-			}
-			if openaiMappingWritten {
-				fmt.Printf("OpenAI proxy mapping written to %s\n", openaiMappingPath)
-			} else {
-				fmt.Printf("OpenAI proxy mapping already exists at %s\n", openaiMappingPath)
-			}
+			printInitFile(styled, configWritten, "Config", configPath)
+			printInitFile(styled, commandmentsWritten, "Commandments", commandmentsPath)
+			printInitFile(styled, toolRegistryWritten, "Tool registry", toolRegistryPath)
+			printInitFile(styled, openaiMappingWritten, "OpenAI proxy mapping", openaiMappingPath)
 
 			// Resolve CA cert/key paths from config (already tilde-expanded).
 			var certPath, keyPath string
@@ -91,18 +81,40 @@ func newInitCmd() *cobra.Command {
 			caExists := certErr == nil && keyErr == nil
 
 			if caExists && !force {
-				fmt.Printf("CA certificate already exists at %s\n", certPath)
+				if styled {
+					fmt.Printf("  %s %s\n", tui.StyleMuted.Render("○"), tui.StyleMuted.Render("CA certificate already exists at "+certPath))
+				} else {
+					fmt.Printf("CA certificate already exists at %s\n", certPath)
+				}
 			} else {
 				if err := proxy.GenerateCA(certPath, keyPath); err != nil {
 					return fmt.Errorf("generate CA: %w", err)
 				}
-				fmt.Printf("CA certificate generated at %s\n", certPath)
-				fmt.Printf("CA key generated at %s\n", keyPath)
-				fmt.Printf("\nTo trust the CA certificate:\n")
-				fmt.Printf("  Linux:   sudo cp %s /usr/local/share/ca-certificates/crabwise.crt && sudo update-ca-certificates\n", certPath)
-				fmt.Printf("  macOS:   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain %s\n", certPath)
-				fmt.Printf("  Node.js: export NODE_EXTRA_CA_CERTS=%s\n", certPath)
-				fmt.Printf("Or use: crabwise wrap -- <command>  (sets proxy env vars automatically)\n")
+				if styled {
+					fmt.Printf("  %s %s %s\n", tui.StyleSuccess.Render("✓"), tui.StyleBody.Render("CA certificate"), tui.StyleMuted.Render(certPath))
+					fmt.Printf("  %s %s %s\n", tui.StyleSuccess.Render("✓"), tui.StyleBody.Render("CA key"), tui.StyleMuted.Render(keyPath))
+				} else {
+					fmt.Printf("CA certificate generated at %s\n", certPath)
+					fmt.Printf("CA key generated at %s\n", keyPath)
+				}
+
+				trustBody := fmt.Sprintf(
+					"Linux:   sudo cp %s /usr/local/share/ca-certificates/crabwise.crt && sudo update-ca-certificates\n"+
+						"macOS:   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain %s\n"+
+						"Node.js: export NODE_EXTRA_CA_CERTS=%s\n"+
+						"Or use:  crabwise wrap -- <command>  (sets proxy env vars automatically)",
+					certPath, certPath, certPath)
+
+				if styled {
+					fmt.Println()
+					fmt.Println(tui.RenderPanel("Trust the CA", trustBody))
+				} else {
+					fmt.Printf("\nTo trust the CA certificate:\n")
+					fmt.Printf("  Linux:   sudo cp %s /usr/local/share/ca-certificates/crabwise.crt && sudo update-ca-certificates\n", certPath)
+					fmt.Printf("  macOS:   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain %s\n", certPath)
+					fmt.Printf("  Node.js: export NODE_EXTRA_CA_CERTS=%s\n", certPath)
+					fmt.Printf("Or use: crabwise wrap -- <command>  (sets proxy env vars automatically)\n")
+				}
 			}
 
 			return nil
@@ -111,6 +123,22 @@ func newInitCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite existing config")
 	return cmd
+}
+
+func printInitFile(styled, written bool, label, path string) {
+	if styled {
+		if written {
+			fmt.Printf("  %s %s %s\n", tui.StyleSuccess.Render("✓"), tui.StyleBody.Render(label), tui.StyleMuted.Render(path))
+		} else {
+			fmt.Printf("  %s %s\n", tui.StyleMuted.Render("○"), tui.StyleMuted.Render(label+" already exists at "+path))
+		}
+	} else {
+		if written {
+			fmt.Printf("%s written to %s\n", label, path)
+		} else {
+			fmt.Printf("%s already exists at %s\n", label, path)
+		}
+	}
 }
 
 func writeDefaultFile(path string, content []byte, force bool) (bool, error) {
