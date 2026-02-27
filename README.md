@@ -43,6 +43,9 @@ tmp="$(mktemp -d)" && gh repo clone crabwise-ai/crabwise "$tmp" && cd "$tmp" && 
 # Write default config + commandments files (~/.config/crabwise/)
 crabwise init
 
+# Trust the Crabwise CA (required for HTTPS interception / policy enforcement)
+crabwise cert trust --copy
+
 # Start the daemon (foreground)
 crabwise start
 
@@ -65,6 +68,10 @@ crabwise stop            # graceful shutdown
 ```
 
 ## Usage
+
+### `crabwise cert trust`
+
+Prints an OS-specific command to trust Crabwise's local CA certificate (required for HTTPS interception / policy enforcement). Use `--copy` to put the command on your clipboard.
 
 ### `crabwise start`
 

@@ -7,9 +7,8 @@ Here's the full user experience end to end:
 crabwise init
 
 # 2. Trust the CA certificate so HTTPS interception works
-# (crabwise init prints these instructions)
-sudo cp ~/.local/share/crabwise/ca.crt /usr/local/share/ca-certificates/crabwise.crt
-sudo update-ca-certificates
+# (prints an OS-specific, copy/paste command; use --copy to put it on your clipboard)
+crabwise cert trust --copy
 
 # 3. Start the daemon
 crabwise start
