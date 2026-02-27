@@ -69,9 +69,11 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 - Linting: `.golangci.yml` with errcheck exclusions for safe patterns (defer Close, fmt.Fprint, os.Remove), test file exclusions
 - Platform: build constraints for SO_PEERCRED (Linux-only) vs no-op (darwin), enabling macOS builds
 
-### M1 — Commandment Engine + Warn (Weeks 2-2.5)
+### M1 — Commandment Engine + Warn (Weeks 2-2.5) ✅ COMPLETE
 
 **Demo:** `.env` access triggers warning in `crabwise audit --triggered`
+
+**Status alignment (2026-02-27):** Implemented and shipped before M2 close; this plan now marks M1 complete.
 
 | Deliverable | Detail |
 |------------|--------|
@@ -88,11 +90,11 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 | Audit redaction | Redact secrets/credentials in audit persistence path |
 
 **Exit gates:**
-- Eval latency: p95 < 2ms, p99 < 8ms
-- Rule ordering + conflict resolution covered by tests
-- Redaction tests pass for `.env`, API keys, tokens, common credential patterns
-- SIGHUP reload works atomically
-- `block` rules downgrade to `warn` on log watcher (non-enforcing adapter)
+- ✅ Eval latency: p95 < 2ms, p99 < 8ms (`TestEvalLatencySLO`)
+- ✅ Rule ordering + conflict resolution covered by tests (`TestEvaluate_OrderPriorityDescThenNameAsc`)
+- ✅ Redaction tests pass for `.env`, API keys, tokens, common credential patterns (`internal/commandments/redaction_test.go`)
+- ✅ SIGHUP reload works atomically (`commandments.reload` IPC handler + daemon reload path)
+- ✅ `block` rules downgrade to `warn` on log watcher (non-enforcing adapter)
 
 **Post-M1 changes (out of scope):**
 - Added Codex CLI log watcher support (`internal/adapter/logwatcher/codexcli.go`) with parser routing by source/type.
@@ -101,11 +103,13 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 - Normalized Codex session IDs to UUID suffix across parser + discovery for consistent correlation in `agents`/`audit`.
 - Fixed Codex token_count merge behavior to support partial `usage` payloads without dropping top-level token counts.
 
-### M1.5 — Canonical Tool Taxonomy + Central Classifier (Week 3)
+### M1.5 — Canonical Tool Taxonomy + Central Classifier (Week 3) ✅ COMPLETE
 
 **Demo:** One commandment using `tool_category: shell` + `tool_effect: execute` matches equivalent tool actions across Claude Code and Codex without adapter-specific rules.
 
 **Rationale:** M2 block enforcement needs provider-agnostic commandment semantics. Central classification removes per-adapter drift and keeps taxonomy decisions deterministic.
+
+**Status alignment (2026-02-27):** Implemented and in active use across log watcher + proxy paths; this plan now marks M1.5 complete.
 
 | Deliverable | Detail |
 |------------|--------|
@@ -118,10 +122,10 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 | DB stance | Fresh DB bootstrap for M1.5 with taxonomy fields in baseline schema (no migration narrative for this milestone section) |
 
 **Exit gates:**
-- Conformance fixtures show equivalent tool actions classify identically across adapters
-- Known mapped tools resolve via deterministic exact matching (no silent heuristic downgrade)
-- `crabwise status` exposes `unclassified_tool_count` and operators can use it to spot taxonomy drift
-- `crabwise classify` output is deterministic and includes classification provenance
+- ✅ Conformance fixtures show equivalent tool actions classify identically across adapters (`TestToolClassificationConformance_ClaudeAndCodex`)
+- ✅ Known mapped tools resolve via deterministic exact matching (no silent heuristic downgrade)
+- ✅ `crabwise status` exposes `unclassified_tool_count` for taxonomy drift detection
+- ✅ `crabwise classify` output is deterministic and includes classification provenance
 
 ### M2 — Proxy + Block Enforcement (Weeks 3-4) ✅ COMPLETE
 
@@ -180,6 +184,7 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 | Deliverable | Detail | Status |
 |------------|--------|--------|
 | Bubble Tea TUI | Real-time event feed, status strip (queue depth, drops, uptime), trigger-rate counter | ✅ |
+| Start daemon TUI | `crabwise start` uses an alt-screen Bubble Tea lifecycle view with standardized spinner states and organized daemon status/events | ✅ (post-M3 follow-up, 2026-02-27) |
 | `--text` fallback | `crabwise watch --text` for headless/CI/non-TTY usage | ✅ |
 | Status polling | IPC-based 3s status poll with failure-resilient `OK` flag | ✅ (unplanned) |
 | Commandment eval latency gate | `TestEvalLatencySLO` — p95 < 2ms, p99 < 8ms, p50/max output | ✅ |
@@ -222,6 +227,7 @@ Additional M3.5 follow-up completed after initial merge:
 - ✅ CI lint blocker cleanup (errcheck/staticcheck fixes)
 - ✅ CI flake stabilization for transient proxy test transport resets (`TestProxyLatencyGate`, `TestConnectMITM_SSEStreaming`)
 - ✅ Local Go cache path hygiene (`.gocache/` in `.gitignore`)
+- ✅ `crabwise start` TUI refresh: full-screen lifecycle/status view and standardized spinner usage (`internal/cli/start_tui.go`)
 
 ---
 
@@ -711,6 +717,17 @@ crabwise/
 11. **TUI:** `crabwise watch` shows live feed, warnings/blocks, queue depth, drop counters
 12. **Classifier introspection:** `crabwise classify` confirms provider/default lookup path and reports `classification_source`
 13. **Classifier drift signal:** `crabwise status` shows `unclassified_tool_count`; non-zero counts trigger taxonomy review
+14. **Start lifecycle UX:** `crabwise start` runs as a full-screen TUI with service states, lifecycle events, and clean shutdown visibility
+
+---
+
+## Exit Gate Evidence Map (Current)
+
+- **M1 commandment engine gates:** `internal/commandments/engine_test.go` (`TestEvaluate_OrderPriorityDescThenNameAsc`, `TestEvalLatencySLO`) + `internal/commandments/redaction_test.go`
+- **M1.5 taxonomy gates:** `internal/adapter/logwatcher/conformance_test.go` + `internal/cli/classify_test.go` + daemon status field `unclassified_tool_count`
+- **M2 proxy correctness gates:** `internal/daemon/proxy_e2e_test.go` (`TestDaemonProxyE2E_AllowPath`, `TestDaemonProxyE2E_BlockPath`) + `internal/adapter/proxy/streaming_test.go`
+- **M3 latency/streaming gates:** `internal/adapter/proxy/latency_benchmark_test.go` (`TestProxyLatencyGate`, `TestProxyFirstTokenGate`) + `internal/adapter/proxy/connect_test.go` (`TestConnectMITM_SSEStreaming`)
+- **M3 TUI gates:** `internal/cli/watch_tui.go` (watch UX), `internal/cli/start_tui.go` (start lifecycle UX), `internal/cli/watch.go` (`--text` fallback)
 
 ---
 
