@@ -424,8 +424,8 @@ func TestAuditEventsToRows(t *testing.T) {
 		t.Fatalf("expected empty cost for tool_call, got %q", rows[1][5])
 	}
 
-	// Outcome should include status icon text
-	if !strings.Contains(rows[1][4], "warned") {
-		t.Fatalf("expected 'warned' in outcome, got %q", rows[1][4])
+	// Outcome should use normalized plain-text label.
+	if rows[1][4] != "WARNED" {
+		t.Fatalf("expected outcome 'WARNED', got %q", rows[1][4])
 	}
 }
