@@ -9,6 +9,8 @@ import (
 
 // Custom nautical spinner frame sets.
 var (
+	SpinnerLine = spinner.Line
+
 	SpinnerTide = spinner.Spinner{
 		Frames: []string{"░", "▒", "▓", "█", "▓", "▒", "░"},
 		FPS:    80 * time.Millisecond,
