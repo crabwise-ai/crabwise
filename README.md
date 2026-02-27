@@ -32,6 +32,9 @@ go install github.com/crabwise-ai/crabwise/cmd/crabwise@latest
 # from source (requires Go 1.25+)
 git clone https://github.com/crabwise-ai/crabwise.git && cd crabwise && make build
 sudo cp bin/crabwise /usr/local/bin/
+
+# from a PR (change to pr#)
+tmp="$(mktemp -d)" && gh repo clone crabwise-ai/crabwise "$tmp" && cd "$tmp" && gh pr checkout 15 && make build && sudo install -m 0755 bin/crabwise /usr/local/bin/crabwise && cd - >/dev/null && rm -rf "$tmp"
 ```
 
 ## Quick Start
