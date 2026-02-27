@@ -32,7 +32,7 @@ func TestRenderBannerStatic_HasFourLines(t *testing.T) {
 	}
 }
 
-func TestBannerModel_WaveProducesFrames(t *testing.T) {
+func TestBannerModel_RippleProducesFrames(t *testing.T) {
 	m := NewBannerModel("0.4.2")
 
 	// Init should produce a command.
@@ -53,21 +53,24 @@ func TestBannerModel_WaveProducesFrames(t *testing.T) {
 		t.Fatal("expected tick cmd after first update")
 	}
 	m2 := updated.(BannerModel)
-	if m2.pos != 1 {
-		t.Fatalf("expected pos=1 after first tick, got %d", m2.pos)
+	if m2.tick != 1 {
+		t.Fatalf("expected tick=1 after first update, got %d", m2.tick)
 	}
 
-	// Advance until done.
+	// Advance a few more ticks and verify loop continues.
 	model := m2
-	for !model.done {
-		updated, _ = model.Update(bannerTickMsg{})
+	for i := 0; i < 2; i++ {
+		updated, cmd := model.Update(bannerTickMsg{})
+		if cmd == nil {
+			t.Fatal("expected tick cmd after update")
+		}
 		model = updated.(BannerModel)
 	}
-	if !model.done {
-		t.Fatal("expected model to be done after full sweep")
+	if model.tick != 3 {
+		t.Fatalf("expected tick=3 after 3 updates, got %d", model.tick)
 	}
 
-	// Final view should still have content.
+	// View should still have content.
 	finalView := model.View()
 	if finalView == "" {
 		t.Fatal("final View() is empty")

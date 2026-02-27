@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -34,11 +35,14 @@ type auditVerifyResultMsg struct {
 	err      error
 }
 
+type auditBannerTickMsg struct{}
+
 type auditTUIModel struct {
 	socketPath string
 	width      int
 	height     int
 	mode       string // "events" or "cost"
+	bannerTick int
 
 	// Event mode fields
 	table        table.Model
@@ -120,10 +124,16 @@ func auditCostColumns() []table.Column {
 }
 
 func (m auditTUIModel) Init() tea.Cmd {
+	loadCmd := loadAuditEvents(m.socketPath, m.queryParams, m.page, m.pageSize, "")
 	if m.mode == "cost" {
-		return loadAuditCost(m.socketPath, m.queryParams)
+		loadCmd = loadAuditCost(m.socketPath, m.queryParams)
 	}
-	return loadAuditEvents(m.socketPath, m.queryParams, m.page, m.pageSize, "")
+	return tea.Batch(
+		loadCmd,
+		tea.Tick(60*time.Millisecond, func(time.Time) tea.Msg {
+			return auditBannerTickMsg{}
+		}),
+	)
 }
 
 func (m auditTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -237,6 +247,12 @@ func (m auditTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.verifyResult = tui.StatusIcon("blocked") + " " + tui.StyleError.Render(fmt.Sprintf("Hash chain BROKEN at event %s (%d events checked)", msg.brokenAt, msg.total))
 		}
 		return m, nil
+
+	case auditBannerTickMsg:
+		m.bannerTick++
+		return m, tea.Tick(60*time.Millisecond, func(time.Time) tea.Msg {
+			return auditBannerTickMsg{}
+		})
 	}
 
 	// Forward to active table for ↑↓ navigation
@@ -263,10 +279,10 @@ func (m auditTUIModel) View() string {
 	var b strings.Builder
 
 	if m.mode == "cost" {
-		b.WriteString(renderAuditBanner("Audit — Cost Summary", ""))
+		b.WriteString(renderAuditBanner("Audit — Cost Summary", "", m.bannerTick))
 	} else {
 		countInfo := fmt.Sprintf("%d events", m.total)
-		b.WriteString(renderAuditBanner("Audit Trail", countInfo))
+		b.WriteString(renderAuditBanner("Audit Trail", countInfo, m.bannerTick))
 	}
 	b.WriteString("\n")
 
@@ -323,16 +339,17 @@ func (m auditTUIModel) View() string {
 	return b.String()
 }
 
-func renderAuditBanner(heading, rightInfo string) string {
+func renderAuditBanner(heading, rightInfo string, bannerTick int) string {
 	gap := "  "
-	rightText := make([]string, len(tui.CrabArt))
+	art := tui.CrabArtRipple(bannerTick)
+	rightText := make([]string, len(art))
 	rightText[0] = tui.StyleHeading.Render(heading)
 	if rightInfo != "" {
 		rightText[0] += "  " + tui.StyleMuted.Render(rightInfo)
 	}
 
 	var lines []string
-	for i, a := range tui.CrabArt {
+	for i, a := range art {
 		styled := lipgloss.NewStyle().Foreground(tui.ColorCrabOrange).Render(a)
 		right := ""
 		if i < len(rightText) {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
@@ -25,6 +26,8 @@ type commandmentsReloadedMsg struct {
 	err         error
 }
 
+type commandmentsBannerTickMsg struct{}
+
 type commandmentsTUIModel struct {
 	socketPath string
 	table      table.Model
@@ -33,6 +36,7 @@ type commandmentsTUIModel struct {
 	ruleCount  int
 	reloading  bool
 	reloadMsg  string
+	bannerTick int
 	err        error
 }
 
@@ -58,7 +62,12 @@ func commandmentsColumns() []table.Column {
 }
 
 func (m commandmentsTUIModel) Init() tea.Cmd {
-	return loadCommandments(m.socketPath)
+	return tea.Batch(
+		loadCommandments(m.socketPath),
+		tea.Tick(60*time.Millisecond, func(time.Time) tea.Msg {
+			return commandmentsBannerTickMsg{}
+		}),
+	)
 }
 
 func (m commandmentsTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -95,6 +104,12 @@ func (m commandmentsTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.reloadMsg = fmt.Sprintf("✓ Reloaded %d rules", msg.rulesLoaded)
 		}
 		return m, loadCommandments(m.socketPath)
+
+	case commandmentsBannerTickMsg:
+		m.bannerTick++
+		return m, tea.Tick(60*time.Millisecond, func(time.Time) tea.Msg {
+			return commandmentsBannerTickMsg{}
+		})
 	}
 
 	var cmd tea.Cmd
@@ -110,8 +125,8 @@ func (m commandmentsTUIModel) View() string {
 
 	var b strings.Builder
 
-	// Banner
-	b.WriteString(renderCommandmentsBanner(m.ruleCount))
+	// Banner (ripple animation)
+	b.WriteString(renderCommandmentsBanner(m.ruleCount, m.bannerTick))
 	b.WriteString("\n\n")
 
 	if m.err != nil {
@@ -154,8 +169,8 @@ func (m commandmentsTUIModel) View() string {
 	return b.String()
 }
 
-func renderCommandmentsBanner(ruleCount int) string {
-	art := tui.CrabArt
+func renderCommandmentsBanner(ruleCount int, bannerTick int) string {
+	art := tui.CrabArtRipple(bannerTick)
 	gap := "  "
 	rightText := []string{
 		tui.StyleHeading.Render("Commandments"),

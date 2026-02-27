@@ -23,32 +23,30 @@ const (
 	bannerGap          = "   " // gap between art and text
 )
 
-// BannerDone is sent when the wave animation completes.
+// BannerDone is sent when the wave animation completes (used by commands that run banner briefly).
 type BannerDone struct{}
 
 type bannerTickMsg struct{}
 
+// Block cycle for ripple: light → full (░ ▒ ▓ █).
+var blockCycle = []rune{'░', '▒', '▓', '█'}
+
+// blockChars are runes in CrabArt that get replaced by the cycling blocks.
+var blockChars = map[rune]bool{
+	'▄': true, '█': true, '▀': true, '▂': true, '▓': true,
+}
+
 // BannerModel implements tea.Model for the animated crab banner.
 type BannerModel struct {
 	version string
-	pos     int // wave front position (in runes across a line)
-	maxPos  int // rune width of the widest art line + wave width
-	done    bool
+	tick    int // frame counter for ripple (loops via modulo)
 }
 
-// NewBannerModel creates a new animated crab banner.
+// NewBannerModel creates a new animated crab banner with looping ripple effect.
 func NewBannerModel(version string) BannerModel {
-	maxWidth := 0
-	for _, line := range CrabArt {
-		w := len([]rune(line))
-		if w > maxWidth {
-			maxWidth = w
-		}
-	}
 	return BannerModel{
 		version: version,
-		pos:     0,
-		maxPos:  maxWidth + 3, // 3-char wave width
+		tick:    0,
 	}
 }
 
@@ -60,14 +58,7 @@ func (m BannerModel) Init() tea.Cmd {
 
 func (m BannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if _, ok := msg.(bannerTickMsg); ok {
-		if m.done {
-			return m, nil
-		}
-		m.pos++
-		if m.pos >= m.maxPos {
-			m.done = true
-			return m, func() tea.Msg { return BannerDone{} }
-		}
+		m.tick++
 		return m, tea.Tick(bannerTickInterval, func(time.Time) tea.Msg {
 			return bannerTickMsg{}
 		})
@@ -78,8 +69,10 @@ func (m BannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m BannerModel) View() string {
 	rightText := bannerRightText(m.version)
 	var lines []string
+	pos := 0
 	for i, art := range CrabArt {
-		rendered := m.renderArtLine(art)
+		rendered, nextPos := m.renderArtLine(art, pos)
+		pos = nextPos
 		right := ""
 		if i < len(rightText) {
 			right = rightText[i]
@@ -89,22 +82,23 @@ func (m BannerModel) View() string {
 	return strings.Join(lines, "\n")
 }
 
-func (m BannerModel) renderArtLine(line string) string {
+func (m BannerModel) renderArtLine(line string, startPos int) (string, int) {
 	runes := []rune(line)
 	var b strings.Builder
-	for i, r := range runes {
-		var style lipgloss.Style
-		switch {
-		case m.done || i < m.pos-2:
-			style = lipgloss.NewStyle().Foreground(ColorCrabOrange)
-		case i == m.pos-2:
-			style = lipgloss.NewStyle().Foreground(ColorWarmGold)
-		default:
-			style = lipgloss.NewStyle().Foreground(ColorDriftGray)
+	pos := startPos
+	for _, r := range runes {
+		if blockChars[r] {
+			phase := (m.tick + pos) % len(blockCycle)
+			block := blockCycle[phase]
+			style := lipgloss.NewStyle().Foreground(ColorCrabOrange)
+			b.WriteString(style.Render(string(block)))
+			pos++
+		} else {
+			style := lipgloss.NewStyle().Foreground(ColorCrabOrange)
+			b.WriteString(style.Render(string(r)))
 		}
-		b.WriteString(style.Render(string(r)))
 	}
-	return b.String()
+	return b.String(), pos
 }
 
 func bannerRightText(version string) []string {
@@ -114,6 +108,28 @@ func bannerRightText(version string) []string {
 		StyleDivider(27),
 		StyleBody.Render("https://github.com/crabwise-ai/crabwise"),
 	}
+}
+
+// CrabArtRipple returns CrabArt with block characters cycled for ripple effect.
+// tick is the frame counter; increment each tick for animation.
+func CrabArtRipple(tick int) []string {
+	result := make([]string, len(CrabArt))
+	pos := 0
+	for i, line := range CrabArt {
+		runes := []rune(line)
+		var b strings.Builder
+		for _, r := range runes {
+			if blockChars[r] {
+				phase := (tick + pos) % len(blockCycle)
+				b.WriteRune(blockCycle[phase])
+				pos++
+			} else {
+				b.WriteRune(r)
+			}
+		}
+		result[i] = b.String()
+	}
+	return result
 }
 
 // RenderBannerStatic returns the banner without animation for plain/non-interactive output.

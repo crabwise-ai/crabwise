@@ -34,7 +34,11 @@ type statusPollMsg struct {
 // statusTickMsg triggers the next poll cycle.
 type statusTUITickMsg struct{}
 
+// bannerTickMsg triggers banner ripple animation frame.
+type bannerTickMsg struct{}
+
 type statusTUIModel struct {
+	bannerTick int
 	socketPath        string
 	width             int
 	connected         bool
@@ -71,6 +75,9 @@ func (m statusTUIModel) Init() tea.Cmd {
 		pollStatus(m.socketPath),
 		tea.Tick(m.pollInterval, func(time.Time) tea.Msg {
 			return statusTUITickMsg{}
+		}),
+		tea.Tick(60*time.Millisecond, func(time.Time) tea.Msg {
+			return bannerTickMsg{}
 		}),
 	)
 }
@@ -114,6 +121,12 @@ func (m statusTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return statusTUITickMsg{}
 			}),
 		)
+
+	case bannerTickMsg:
+		m.bannerTick++
+		return m, tea.Tick(60*time.Millisecond, func(time.Time) tea.Msg {
+			return bannerTickMsg{}
+		})
 	}
 
 	return m, nil
@@ -127,8 +140,8 @@ func (m statusTUIModel) View() string {
 
 	var b strings.Builder
 
-	// Banner with "Status" heading
-	b.WriteString(renderStatusBanner())
+	// Banner with "Status" heading (ripple animation)
+	b.WriteString(renderStatusBanner(m.bannerTick))
 	b.WriteString("\n\n")
 
 	if !m.connected {
@@ -230,8 +243,8 @@ func (m statusTUIModel) View() string {
 }
 
 // renderStatusBanner renders the crab art with "Status" as the heading.
-func renderStatusBanner() string {
-	art := tui.CrabArt
+func renderStatusBanner(bannerTick int) string {
+	art := tui.CrabArtRipple(bannerTick)
 	gap := "  "
 	rightText := []string{
 		tui.StyleHeading.Render("Status"),

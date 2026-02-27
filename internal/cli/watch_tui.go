@@ -43,8 +43,9 @@ type watchModel struct {
 	reconnectAttempts  int
 	fatalErr           error
 
-	connected bool
-	width     int
+	connected  bool
+	width      int
+	bannerTick int
 
 	filterMode  bool
 	filterInput textinput.Model
@@ -77,6 +78,8 @@ type reconnectResultMsg struct {
 }
 
 type statusTickMsg struct{}
+
+type watchBannerTickMsg struct{}
 
 type statusResultMsg struct {
 	OK           bool
@@ -206,6 +209,9 @@ func (m watchModel) Init() tea.Cmd {
 	cmds = append(cmds, tea.Tick(m.deps.StatusInterval, func(time.Time) tea.Msg {
 		return statusTickMsg{}
 	}))
+	cmds = append(cmds, tea.Tick(60*time.Millisecond, func(time.Time) tea.Msg {
+		return watchBannerTickMsg{}
+	}))
 	return tea.Batch(cmds...)
 }
 
@@ -324,6 +330,12 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		return m, readWatchStreamCmd(m.scanner)
+
+	case watchBannerTickMsg:
+		m.bannerTick++
+		return m, tea.Tick(60*time.Millisecond, func(time.Time) tea.Msg {
+			return watchBannerTickMsg{}
+		})
 	}
 
 	return m, nil
@@ -332,10 +344,11 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m watchModel) View() string {
 	var lines []string
 
-	// Banner area: crab art on left, Watch title + connection on right
+	// Banner area: crab art on left (ripple animation), Watch title + connection on right
+	art := tui.CrabArtRipple(m.bannerTick)
 	connIndicator := m.connectionIndicator()
 	bannerRight := []string{
-		tui.StyleHeading.Render("Watch") + strings.Repeat(" ", max(1, m.width-lipgloss.Width(tui.StyleHeading.Render("Watch"))-len(tui.CrabArt[0])-3-lipgloss.Width(connIndicator))) + connIndicator,
+		tui.StyleHeading.Render("Watch") + strings.Repeat(" ", max(1, m.width-lipgloss.Width(tui.StyleHeading.Render("Watch"))-len(art[0])-3-lipgloss.Width(connIndicator))) + connIndicator,
 		tui.StyleDivider(27),
 	}
 	// Status strip values
@@ -353,8 +366,8 @@ func (m watchModel) View() string {
 	bannerRight = append(bannerRight, statusLine, uptimeLine)
 
 	artStyle := lipgloss.NewStyle().Foreground(tui.ColorCrabOrange)
-	for i, art := range tui.CrabArt {
-		styled := artStyle.Render(art)
+	for i, line := range art {
+		styled := artStyle.Render(line)
 		right := ""
 		if i < len(bannerRight) {
 			right = bannerRight[i]

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,11 +20,14 @@ type agentsLoadedMsg struct {
 	err    error
 }
 
+type agentsBannerTickMsg struct{}
+
 type agentsTUIModel struct {
 	socketPath string
 	table      table.Model
 	agents     []discovery.AgentInfo
 	width      int
+	bannerTick int
 	err        error
 }
 
@@ -49,7 +53,12 @@ func agentsColumns(width int) []table.Column {
 }
 
 func (m agentsTUIModel) Init() tea.Cmd {
-	return loadAgents(m.socketPath)
+	return tea.Batch(
+		loadAgents(m.socketPath),
+		tea.Tick(60*time.Millisecond, func(time.Time) tea.Msg {
+			return agentsBannerTickMsg{}
+		}),
+	)
 }
 
 func (m agentsTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -77,6 +86,12 @@ func (m agentsTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.agents = msg.agents
 		m.table.SetRows(agentsToRows(msg.agents))
 		return m, nil
+
+	case agentsBannerTickMsg:
+		m.bannerTick++
+		return m, tea.Tick(60*time.Millisecond, func(time.Time) tea.Msg {
+			return agentsBannerTickMsg{}
+		})
 	}
 
 	var cmd tea.Cmd
@@ -92,8 +107,8 @@ func (m agentsTUIModel) View() string {
 
 	var b strings.Builder
 
-	// Banner
-	b.WriteString(renderAgentsBanner())
+	// Banner (ripple animation)
+	b.WriteString(renderAgentsBanner(m.bannerTick))
 	b.WriteString("\n\n")
 
 	if m.err != nil {
@@ -121,13 +136,14 @@ func (m agentsTUIModel) View() string {
 	return b.String()
 }
 
-func renderAgentsBanner() string {
+func renderAgentsBanner(bannerTick int) string {
 	gap := "  "
 	rightText := []string{
 		tui.StyleHeading.Render("Agents"),
 	}
+	art := tui.CrabArtRipple(bannerTick)
 	var lines []string
-	for i, a := range tui.CrabArt {
+	for i, a := range art {
 		styled := lipgloss.NewStyle().Foreground(tui.ColorCrabOrange).Render(a)
 		right := ""
 		if i < len(rightText) {
