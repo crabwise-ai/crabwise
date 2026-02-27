@@ -503,28 +503,6 @@ func renderStartBanner(version string) string {
 	return strings.Join(lines, "\n")
 }
 
-func sectionDivider(name string, width int) string {
-	prefix := " ─═─ "
-	suffix := " "
-	label := prefix + name + suffix
-	remaining := width - len([]rune(label))
-	if remaining < 0 {
-		remaining = 0
-	}
-	fill := tui.StyleDivider(remaining)
-	return tui.StyleMuted.Render(label) + fill
-}
-
-func padRight(label, value string, totalWidth int) string {
-	labelWidth := lipgloss.Width(label)
-	valueWidth := lipgloss.Width(value)
-	gap := totalWidth - labelWidth - valueWidth
-	if gap < 1 {
-		gap = 1
-	}
-	return label + strings.Repeat(" ", gap) + value
-}
-
 func cfgPath(path string) string {
 	return strings.ReplaceAll(path, "\n", "")
 }
