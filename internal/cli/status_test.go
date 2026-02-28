@@ -116,3 +116,54 @@ func TestStatusCommand_ShowsUnclassifiedToolCount(t *testing.T) {
 		t.Fatalf("expected unclassified count in output, got: %s", out)
 	}
 }
+
+func TestStatusCommand_ShowsOpenClaw(t *testing.T) {
+	paths := newTestRuntimePaths(t)
+
+	srv := ipc.NewServer(paths.socketPath)
+	srv.Handle("status", func(params json.RawMessage) (interface{}, error) {
+		return map[string]interface{}{
+			"uptime":                         "1m",
+			"pid":                            123,
+			"agents":                         2,
+			"queue_depth":                    4,
+			"queue_dropped":                  0,
+			"unclassified_tool_count":        3,
+			"openclaw_connected":             1,
+			"openclaw_session_cache_size":    2,
+			"openclaw_correlation_matches":   5,
+			"openclaw_correlation_ambiguous": 1,
+		}, nil
+	})
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start ipc server: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = srv.Stop()
+	})
+
+	cfg := fmt.Sprintf("daemon:\n  socket_path: %q\n", paths.socketPath)
+	if err := os.WriteFile(paths.cfgPath, []byte(cfg), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	out, err := captureStdout(func() error {
+		cmd := newStatusCmd()
+		cmd.SetArgs([]string{"--config", paths.cfgPath})
+		return cmd.Execute()
+	})
+	if err != nil {
+		t.Fatalf("execute status command: %v", err)
+	}
+
+	for _, want := range []string{
+		"OpenClaw:     connected",
+		"OC sessions:  2",
+		"OC matches:   5",
+		"OC ambiguous: 1",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output, got: %s", want, out)
+		}
+	}
+}

@@ -243,6 +243,35 @@ func TestWatchModel_FilterMatchesOutcomeKeywords(t *testing.T) {
 	}
 }
 
+func TestWatchModel_OpenClawSessionIsSearchableAndVisible(t *testing.T) {
+	now := time.Now().UTC()
+	m := newWatchModel(watchModelDeps{Now: func() time.Time { return now }})
+
+	updated, _ := m.Update(auditEventMsg{Event: audit.AuditEvent{
+		Timestamp:  now,
+		AgentID:    "openclaw",
+		SessionID:  "agent:main:discord:channel:123",
+		ActionType: audit.ActionAIRequest,
+		Action:     "chat",
+		Arguments:  `{"openclaw.run_id":"run-1"}`,
+		Outcome:    audit.OutcomeBlocked,
+	}})
+	next := updated.(watchModel)
+
+	if len(next.feed) != 1 {
+		t.Fatalf("expected 1 feed row, got %d", len(next.feed))
+	}
+	if !strings.Contains(next.feed[0], "openclaw/main:discord:123") {
+		t.Fatalf("expected compact openclaw session label in feed, got %s", next.feed[0])
+	}
+
+	next.filterText = "channel:123"
+	next.rebuildFeed()
+	if len(next.feed) != 1 {
+		t.Fatalf("expected session filter to match row, got %d rows", len(next.feed))
+	}
+}
+
 func TestWatchModel_FilterIndicatorInView(t *testing.T) {
 	now := time.Now().UTC()
 	m := newWatchModel(watchModelDeps{Now: func() time.Time { return now }})

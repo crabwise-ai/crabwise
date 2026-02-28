@@ -37,6 +37,10 @@ func TestStatusTUIModel_Update(t *testing.T) {
 		proxyErrors:       float64(0),
 		mappingDegraded:   float64(0),
 		unclassifiedTools: float64(1),
+		openclawConnected: true,
+		openclawSessions:  float64(2),
+		openclawMatches:   float64(5),
+		openclawAmbiguous: float64(1),
 	}
 
 	updated, cmd := m.Update(poll)
@@ -74,6 +78,12 @@ func TestStatusTUIModel_Update(t *testing.T) {
 	}
 	if !strings.Contains(view, "12") {
 		t.Fatalf("expected queue depth 12 in view, got: %s", view)
+	}
+	if !strings.Contains(view, "OpenClaw") {
+		t.Fatalf("expected OpenClaw in view, got: %s", view)
+	}
+	if !strings.Contains(view, "Matches:") {
+		t.Fatalf("expected OpenClaw matches in view, got: %s", view)
 	}
 
 	// Test q key quits

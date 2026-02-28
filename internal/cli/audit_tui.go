@@ -100,7 +100,7 @@ func newAuditTUIModel(socketPath string, queryParams map[string]interface{}, ini
 func auditEventsColumns() []table.Column {
 	return []table.Column{
 		{Title: "TIME", Width: 8},
-		{Title: "AGENT", Width: 14},
+		{Title: "AGENT", Width: 28},
 		{Title: "ACTION TYPE", Width: 19},
 		{Title: "ACTION", Width: 11},
 		{Title: "OUTCOME", Width: 11},
@@ -347,7 +347,7 @@ func auditEventsToRows(events []*audit.AuditEvent) []table.Row {
 	rows := make([]table.Row, len(events))
 	for i, e := range events {
 		ts := tui.FormatTimestamp(e.Timestamp)
-		agent := tui.Truncate(e.AgentID, 14)
+		agent := tui.Truncate(compactAgentLabel(e.AgentID, e.SessionID), 28)
 		actionType := string(e.ActionType)
 		action := tui.Truncate(e.Action, 11)
 		outcome := formatAuditOutcome(e.Outcome)

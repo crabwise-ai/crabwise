@@ -263,6 +263,27 @@ func TestAuditTUIModel_CtrlCQuits(t *testing.T) {
 	}
 }
 
+func TestAuditTUI_OpenClawSessionRows(t *testing.T) {
+	events := []*audit.AuditEvent{
+		{
+			Timestamp:  time.Date(2026, 2, 28, 14, 31, 58, 0, time.UTC),
+			AgentID:    "openclaw",
+			SessionID:  "agent:main:discord:channel:123",
+			ActionType: audit.ActionAIRequest,
+			Action:     "chat",
+			Outcome:    audit.OutcomeBlocked,
+		},
+	}
+
+	rows := auditEventsToRows(events)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if rows[0][1] != "openclaw/main:discord:123" {
+		t.Fatalf("expected compact openclaw session agent label, got %q", rows[0][1])
+	}
+}
+
 func TestAuditTUIModel_WindowResize(t *testing.T) {
 	m := newAuditTUIModel("/tmp/nonexistent.sock", map[string]interface{}{}, "events")
 

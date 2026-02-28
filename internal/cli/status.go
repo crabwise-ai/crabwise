@@ -57,6 +57,16 @@ func runStatusPlain(cfg *daemon.Config) error {
 	fmt.Printf("Queue depth:  %v\n", status["queue_depth"])
 	fmt.Printf("Dropped:      %v\n", status["queue_dropped"])
 	fmt.Printf("Unclassified: %v\n", status["unclassified_tool_count"])
+	if _, ok := status["openclaw_connected"]; ok {
+		state := "disconnected"
+		if status["openclaw_connected"] == float64(1) || status["openclaw_connected"] == 1 {
+			state = "connected"
+		}
+		fmt.Printf("OpenClaw:     %s\n", state)
+		fmt.Printf("OC sessions:  %v\n", status["openclaw_session_cache_size"])
+		fmt.Printf("OC matches:   %v\n", status["openclaw_correlation_matches"])
+		fmt.Printf("OC ambiguous: %v\n", status["openclaw_correlation_ambiguous"])
+	}
 	if _, ok := status["proxy_requests_total"]; ok {
 		fmt.Printf("Proxy reqs:   %v\n", status["proxy_requests_total"])
 		fmt.Printf("Proxy blocked:%v\n", status["proxy_blocked_total"])
