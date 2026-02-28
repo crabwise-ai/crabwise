@@ -227,7 +227,6 @@ func (c *GatewayClient) readLoop(conn *websocket.Conn, helloCh chan<- *HelloOK, 
 				if c.cfg.APIToken == "" {
 					if helloPending {
 						errCh <- errors.New("gateway auth challenge received but api token is not configured")
-						helloPending = false
 					}
 					_ = conn.Close()
 					return

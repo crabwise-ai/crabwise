@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"sync"
 	"testing"
 	"time"
 
@@ -224,13 +223,3 @@ func writeGatewayJSON(t *testing.T, conn *websocket.Conn, payload interface{}) {
 	}
 }
 
-type countingEventHandler struct {
-	mu    sync.Mutex
-	count int
-}
-
-func (h *countingEventHandler) Handle(_ *EventFrame) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.count++
-}
