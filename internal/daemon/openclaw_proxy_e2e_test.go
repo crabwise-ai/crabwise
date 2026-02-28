@@ -2,15 +2,12 @@ package daemon
 
 import (
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -414,40 +411,4 @@ func (g *openClawE2EGateway) Close() {
 	_ = g.listener.Close()
 }
 
-func sendOpenClawMITMChatCompletion(t *testing.T, proxyAddr, upstreamURL string, caPool *x509.CertPool) (int, string) {
-	t.Helper()
 
-	proxyURL, err := url.Parse("http://" + proxyAddr)
-	if err != nil {
-		t.Fatalf("parse proxy URL: %v", err)
-	}
-
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			Proxy: http.ProxyURL(proxyURL),
-			TLSClientConfig: &tls.Config{
-				RootCAs: caPool,
-			},
-		},
-	}
-
-	u, err := url.Parse(upstreamURL)
-	if err != nil {
-		t.Fatalf("parse upstream URL: %v", err)
-	}
-
-	target := "https://" + u.Host + "/v1/chat/completions"
-	resp, err := client.Post(target, "application/json", strings.NewReader(`{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`))
-	if err != nil {
-		t.Fatalf("send proxy request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("read proxy response body: %v", err)
-	}
-
-	return resp.StatusCode, string(body)
-}
