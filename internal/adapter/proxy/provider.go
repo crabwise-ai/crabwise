@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/crabwise-ai/crabwise/internal/openclawstate"
 )
 
 type Pricing struct {
@@ -116,4 +118,8 @@ type ProviderRuntime struct {
 // RawPayloadWriter is satisfied by audit.RawPayloadManager.
 type RawPayloadWriter interface {
 	Write(eventID string, payload []byte) (string, error)
+}
+
+type RequestAttributor interface {
+	MatchProxyRequest(ts time.Time, provider, model string) (openclawstate.MatchResult, bool)
 }

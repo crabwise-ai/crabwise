@@ -40,6 +40,7 @@ type Proxy struct {
 	evaluator  Evaluator
 	classifier classify.Classifier
 	events     chan<- *audit.AuditEvent
+	attributor RequestAttributor
 
 	router         *Router
 	providers      map[string]*ProviderRuntime
@@ -60,6 +61,14 @@ func (p *Proxy) SetClassifier(c classify.Classifier) {
 	if c != nil {
 		p.classifier = c
 	}
+}
+
+func (p *Proxy) SetRequestAttributor(a RequestAttributor) {
+	p.attributor = a
+}
+
+func (p *Proxy) HasRequestAttributor() bool {
+	return p.attributor != nil
 }
 
 func New(cfg Config, evaluator Evaluator, classifier classify.Classifier, events chan<- *audit.AuditEvent) (*Proxy, error) {
@@ -504,6 +513,25 @@ func (p *Proxy) buildAuditEvent(eventID string, ts time.Time, provider string, r
 		Model:       req.Model,
 		AdapterID:   "proxy",
 		AdapterType: "proxy",
+	}
+
+	if p.attributor != nil {
+		if match, ok := p.attributor.MatchProxyRequest(ts, provider, req.Model); ok {
+			if match.AgentID != "" {
+				e.AgentID = match.AgentID
+			}
+			e.SessionID = match.SessionKey
+			e.ParentSessionID = match.ParentSession
+			if e.Model == "" && match.Model != "" {
+				e.Model = match.Model
+			}
+			p.appendArgumentMetadata(e, map[string]interface{}{
+				"openclaw.run_id":         match.RunID,
+				"openclaw.session_key":    match.SessionKey,
+				"openclaw.agent_id":       match.AgentID,
+				"openclaw.thinking_level": match.ThinkingLevel,
+			})
+		}
 	}
 
 	if len(req.Tools) > 0 {

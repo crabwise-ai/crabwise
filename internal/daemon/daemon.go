@@ -530,6 +530,9 @@ func (d *Daemon) startOpenClaw(ctx context.Context) error {
 	})
 
 	d.openclawState = openclawstate.New(cfg.CorrelationWindow)
+	if d.proxy != nil {
+		d.proxy.SetRequestAttributor(d.openclawState)
+	}
 	adapter := openclaw.NewAdapter(cfg, d.openclawState)
 	adapter.SetSessionObserver(func(sessions []openclaw.SessionInfo) {
 		d.registry.ReplaceSource("openclaw-gateway", openclawSessionsToAgents(sessions))
