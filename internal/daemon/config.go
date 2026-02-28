@@ -59,6 +59,7 @@ type DiscoveryConfig struct {
 type AdaptersConfig struct {
 	LogWatcher LogWatcherConfig `yaml:"log_watcher"`
 	Proxy      ProxyConfig      `yaml:"proxy"`
+	OpenClaw   OpenClawConfig   `yaml:"openclaw"`
 }
 
 type LogWatcherConfig struct {
@@ -89,6 +90,14 @@ type ProxyProviderConfig struct {
 	RoutePatterns   []string `yaml:"route_patterns"`
 	MaxIdleConns    int      `yaml:"max_idle_conns"`
 	IdleConnTimeout Duration `yaml:"idle_conn_timeout"`
+}
+
+type OpenClawConfig struct {
+	Enabled                bool     `yaml:"enabled"`
+	GatewayURL             string   `yaml:"gateway_url"`
+	APITokenEnv            string   `yaml:"api_token_env"`
+	SessionRefreshInterval Duration `yaml:"session_refresh_interval"`
+	CorrelationWindow      Duration `yaml:"correlation_window"`
 }
 
 type QueueConfig struct {
@@ -191,6 +200,11 @@ func LoadConfig(path string) (*Config, error) {
 				IdleConnTimeout: Duration(90 * time.Second),
 			},
 		}
+		cfg.Adapters.OpenClaw.Enabled = false
+		cfg.Adapters.OpenClaw.GatewayURL = "ws://127.0.0.1:18789"
+		cfg.Adapters.OpenClaw.APITokenEnv = "OPENCLAW_API_TOKEN"
+		cfg.Adapters.OpenClaw.SessionRefreshInterval = Duration(30 * time.Second)
+		cfg.Adapters.OpenClaw.CorrelationWindow = Duration(3 * time.Second)
 		cfg.Queue.Capacity = 10000
 		cfg.Queue.BatchSize = 100
 		cfg.Queue.FlushInterval = Duration(time.Second)
@@ -339,6 +353,17 @@ func (c *Config) validate() error {
 			if _, err := regexp.Compile(pat); err != nil {
 				return fmt.Errorf("adapters.proxy.redact_patterns[%d] invalid regex %q: %w", i, pat, err)
 			}
+		}
+	}
+	if c.Adapters.OpenClaw.Enabled {
+		if strings.TrimSpace(c.Adapters.OpenClaw.GatewayURL) == "" {
+			return fmt.Errorf("adapters.openclaw.gateway_url required when openclaw enabled")
+		}
+		if c.Adapters.OpenClaw.SessionRefreshInterval.Duration() <= 0 {
+			return fmt.Errorf("adapters.openclaw.session_refresh_interval must be > 0 when openclaw enabled")
+		}
+		if c.Adapters.OpenClaw.CorrelationWindow.Duration() <= 0 {
+			return fmt.Errorf("adapters.openclaw.correlation_window must be > 0 when openclaw enabled")
 		}
 	}
 	for model, price := range c.Cost.Pricing {
