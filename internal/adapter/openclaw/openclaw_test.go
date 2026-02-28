@@ -2,6 +2,7 @@ package openclaw
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -109,6 +110,12 @@ func TestAdapterStart(t *testing.T) {
 	if evt.AdapterID != "openclaw-gateway" {
 		t.Fatalf("expected adapter id openclaw-gateway, got %q", evt.AdapterID)
 	}
+	if evt.AdapterType != "gateway_observer" {
+		t.Fatalf("expected adapter type gateway_observer, got %q", evt.AdapterType)
+	}
+	if evt.Arguments == "" || !containsJSONField(evt.Arguments, "openclaw.correlation_confidence", "observer") {
+		t.Fatalf("expected observer correlation confidence in arguments, got %q", evt.Arguments)
+	}
 
 	match, ok := state.MatchProxyRequest(time.Now(), "anthropic", "claude-sonnet")
 	if !ok {
@@ -121,8 +128,8 @@ func TestAdapterStart(t *testing.T) {
 	agentEvt := waitForEvent(t, events, func(evt *audit.AuditEvent) bool {
 		return evt.Action == "agent"
 	})
-	if agentEvt.AdapterType != "openclaw" {
-		t.Fatalf("expected adapter type openclaw, got %q", agentEvt.AdapterType)
+	if agentEvt.AdapterType != "gateway_observer" {
+		t.Fatalf("expected adapter type gateway_observer, got %q", agentEvt.AdapterType)
 	}
 }
 
@@ -131,6 +138,10 @@ func TestAdapterCanEnforce(t *testing.T) {
 	if adapter.CanEnforce() {
 		t.Fatal("expected openclaw adapter to be read-only")
 	}
+}
+
+func containsJSONField(raw, key, want string) bool {
+	return strings.Contains(raw, `"`+key+`":"`+want+`"`)
 }
 
 func waitForEvent(t *testing.T, events <-chan *audit.AuditEvent, match func(*audit.AuditEvent) bool) *audit.AuditEvent {

@@ -44,6 +44,9 @@ func TestBuildAuditEvent_UsesOpenClawMatch(t *testing.T) {
 	if !strings.Contains(evt.Arguments, "\"openclaw.run_id\":\"run-1\"") {
 		t.Fatalf("expected openclaw metadata in arguments, got %q", evt.Arguments)
 	}
+	if !strings.Contains(evt.Arguments, "\"openclaw.correlation_confidence\":\"high\"") {
+		t.Fatalf("expected high correlation confidence in arguments, got %q", evt.Arguments)
+	}
 }
 
 func TestBuildAuditEvent_AmbiguousOpenClawMatchLeavesSessionEmpty(t *testing.T) {
@@ -62,6 +65,9 @@ func TestBuildAuditEvent_AmbiguousOpenClawMatchLeavesSessionEmpty(t *testing.T) 
 	}
 	if evt.SessionID != "" {
 		t.Fatalf("expected empty session id for ambiguous match, got %q", evt.SessionID)
+	}
+	if !strings.Contains(evt.Arguments, "\"openclaw.correlation_confidence\":\"low\"") {
+		t.Fatalf("expected low correlation confidence in arguments, got %q", evt.Arguments)
 	}
 }
 
