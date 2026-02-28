@@ -3,8 +3,6 @@ package openclaw
 import (
 	"os"
 	"time"
-
-	"github.com/crabwise-ai/crabwise/internal/daemon"
 )
 
 type Config struct {
@@ -16,18 +14,12 @@ type Config struct {
 	CorrelationWindow      time.Duration
 }
 
-func ConfigFromDaemon(cfg daemon.OpenClawConfig) Config {
+func ResolveConfigEnv(cfg Config) Config {
 	apiToken := ""
 	if cfg.APITokenEnv != "" {
 		apiToken = os.Getenv(cfg.APITokenEnv)
 	}
 
-	return Config{
-		Enabled:                cfg.Enabled,
-		GatewayURL:             cfg.GatewayURL,
-		APITokenEnv:            cfg.APITokenEnv,
-		APIToken:               apiToken,
-		SessionRefreshInterval: cfg.SessionRefreshInterval.Duration(),
-		CorrelationWindow:      cfg.CorrelationWindow.Duration(),
-	}
+	cfg.APIToken = apiToken
+	return cfg
 }
