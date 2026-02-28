@@ -11,10 +11,12 @@ const maxRecentChats = 256
 type Store struct {
 	correlationWindow time.Duration
 
-	mu       sync.RWMutex
-	sessions map[string]SessionMeta
-	runs     map[string]string
-	chats    []RecentChat
+	mu        sync.RWMutex
+	sessions  map[string]SessionMeta
+	runs      map[string]string
+	chats     []RecentChat
+	matches   uint64
+	ambiguous uint64
 }
 
 func New(correlationWindow time.Duration) *Store {
@@ -58,8 +60,8 @@ func (s *Store) RecordChat(runID, sessionKey, provider, model string, ts time.Ti
 }
 
 func (s *Store) MatchProxyRequest(ts time.Time, provider, model string) (MatchResult, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	bestIndex := -1
 	bestScore := math.MinInt
@@ -93,11 +95,15 @@ func (s *Store) MatchProxyRequest(ts time.Time, provider, model string) (MatchRe
 	}
 
 	if bestIndex < 0 || ambiguous {
+		if ambiguous {
+			s.ambiguous++
+		}
 		return MatchResult{}, false
 	}
 
 	chat := s.chats[bestIndex]
 	meta := s.sessions[chat.SessionKey]
+	s.matches++
 
 	return MatchResult{
 		AgentID:       "openclaw",
@@ -108,6 +114,26 @@ func (s *Store) MatchProxyRequest(ts time.Time, provider, model string) (MatchRe
 		Model:         firstNonEmpty(chat.Model, meta.Model),
 		ThinkingLevel: meta.ThinkingLevel,
 	}, true
+}
+
+type Stats struct {
+	SessionCount int
+	RunCount     int
+	RecentChats  int
+	Matches      uint64
+	Ambiguous    uint64
+}
+
+func (s *Store) Stats() Stats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return Stats{
+		SessionCount: len(s.sessions),
+		RunCount:     len(s.runs),
+		RecentChats:  len(s.chats),
+		Matches:      s.matches,
+		Ambiguous:    s.ambiguous,
+	}
 }
 
 func (s *Store) Snapshot() map[string]any {

@@ -13,8 +13,9 @@ type Adapter struct {
 	cfg   Config
 	state *openclawstate.Store
 
-	client *GatewayClient
-	cache  *SessionCache
+	client     *GatewayClient
+	cache      *SessionCache
+	onSessions func([]SessionInfo)
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -75,6 +76,10 @@ func (a *Adapter) Connected() bool {
 	return a.client.Connected()
 }
 
+func (a *Adapter) SetSessionObserver(fn func([]SessionInfo)) {
+	a.onSessions = fn
+}
+
 func (a *Adapter) refreshLoop(ctx context.Context) {
 	if a.cfg.SessionRefreshInterval <= 0 {
 		return
@@ -98,7 +103,9 @@ func (a *Adapter) refreshSessions(ctx context.Context) error {
 		return err
 	}
 
-	for _, session := range a.cache.Snapshot() {
+	snapshot := a.cache.Snapshot()
+	sessions := make([]SessionInfo, 0, len(snapshot))
+	for _, session := range snapshot {
 		a.state.RecordSession(openclawstate.SessionMeta{
 			SessionKey:    session.Key,
 			AgentID:       session.AgentID,
@@ -107,6 +114,10 @@ func (a *Adapter) refreshSessions(ctx context.Context) error {
 			ThinkingLevel: session.ThinkingLevel,
 			LastActivity:  time.UnixMilli(session.LastActivityAt),
 		})
+		sessions = append(sessions, session)
+	}
+	if a.onSessions != nil {
+		a.onSessions(sessions)
 	}
 
 	return nil

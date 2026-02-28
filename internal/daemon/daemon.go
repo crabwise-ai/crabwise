@@ -16,11 +16,13 @@ import (
 
 	"github.com/crabwise-ai/crabwise/configs"
 	"github.com/crabwise-ai/crabwise/internal/adapter/logwatcher"
+	"github.com/crabwise-ai/crabwise/internal/adapter/openclaw"
 	"github.com/crabwise-ai/crabwise/internal/adapter/proxy"
 	"github.com/crabwise-ai/crabwise/internal/audit"
 	"github.com/crabwise-ai/crabwise/internal/classify"
 	"github.com/crabwise-ai/crabwise/internal/discovery"
 	"github.com/crabwise-ai/crabwise/internal/ipc"
+	"github.com/crabwise-ai/crabwise/internal/openclawstate"
 	crabwiseOtel "github.com/crabwise-ai/crabwise/internal/otel"
 	"github.com/crabwise-ai/crabwise/internal/queue"
 	"github.com/crabwise-ai/crabwise/internal/store"
@@ -30,17 +32,19 @@ import (
 var Version = "dev"
 
 type Daemon struct {
-	cfg          *Config
-	store        *store.Store
-	queue        *queue.Queue
-	logger       *audit.Logger
-	ipcServer    *ipc.Server
-	registry     *discovery.Registry
-	watcher      *logwatcher.LogWatcher
-	proxy        *proxy.Proxy
-	commandments CommandmentsService
-	classifier   classify.Classifier
-	startTime    time.Time
+	cfg           *Config
+	store         *store.Store
+	queue         *queue.Queue
+	logger        *audit.Logger
+	ipcServer     *ipc.Server
+	registry      *discovery.Registry
+	watcher       *logwatcher.LogWatcher
+	proxy         *proxy.Proxy
+	openclaw      *openclaw.Adapter
+	openclawState *openclawstate.Store
+	commandments  CommandmentsService
+	classifier    classify.Classifier
+	startTime     time.Time
 
 	hostname string
 	userID   string
@@ -202,6 +206,16 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// Event forwarder: eventCh → queue
 	go d.forwardEvents(ctx)
 
+	if err := d.startOpenClaw(ctx); err != nil {
+		log.Printf("daemon: openclaw adapter start error: %v", err)
+	} else if d.openclaw != nil {
+		defer func() {
+			if err := d.openclaw.Stop(); err != nil {
+				log.Printf("daemon: openclaw stop: %v", err)
+			}
+		}()
+	}
+
 	// Discovery scanner
 	go d.discoveryLoop(ctx)
 
@@ -257,7 +271,7 @@ func (d *Daemon) discoveryLoop(ctx context.Context) {
 		var agents []discovery.AgentInfo
 		agents = append(agents, discovery.ScanProcesses(d.cfg.Discovery.ProcessSignatures)...)
 		agents = append(agents, discovery.ScanLogPaths(d.cfg.Discovery.LogPaths)...)
-		d.registry.Update(agents)
+		d.registry.ReplaceSource("scanner", agents)
 	}
 
 	scan() // initial scan
@@ -273,25 +287,7 @@ func (d *Daemon) discoveryLoop(ctx context.Context) {
 
 func (d *Daemon) registerIPC() {
 	d.ipcServer.Handle("status", func(params json.RawMessage) (interface{}, error) {
-		stats := d.queue.Stats()
-		var unclassified uint64
-		if d.classifier != nil {
-			unclassified = d.classifier.UnclassifiedCount()
-		}
-		resp := map[string]interface{}{
-			"uptime":                  time.Since(d.startTime).Truncate(time.Second).String(),
-			"agents":                  d.registry.Count(),
-			"queue_depth":             stats.Depth,
-			"queue_dropped":           stats.Dropped,
-			"pid":                     os.Getpid(),
-			"unclassified_tool_count": unclassified,
-		}
-		if d.proxy != nil {
-			for k, v := range d.proxy.Snapshot() {
-				resp[k] = v
-			}
-		}
-		return resp, nil
+		return d.statusSnapshot(), nil
 	})
 
 	d.ipcServer.Handle("agents.list", func(params json.RawMessage) (interface{}, error) {
@@ -514,6 +510,88 @@ func (d *Daemon) reloadRuntime() (int, error) {
 	return rulesLoaded, nil
 }
 
+func (d *Daemon) startOpenClaw(ctx context.Context) error {
+	if d.cfg == nil || !d.cfg.Adapters.OpenClaw.Enabled {
+		return nil
+	}
+	if d.registry == nil {
+		d.registry = discovery.NewRegistry()
+	}
+	if d.eventCh == nil {
+		d.eventCh = make(chan *audit.AuditEvent, 1000)
+	}
+
+	cfg := openclaw.ResolveConfigEnv(openclaw.Config{
+		Enabled:                d.cfg.Adapters.OpenClaw.Enabled,
+		GatewayURL:             d.cfg.Adapters.OpenClaw.GatewayURL,
+		APITokenEnv:            d.cfg.Adapters.OpenClaw.APITokenEnv,
+		SessionRefreshInterval: d.cfg.Adapters.OpenClaw.SessionRefreshInterval.Duration(),
+		CorrelationWindow:      d.cfg.Adapters.OpenClaw.CorrelationWindow.Duration(),
+	})
+
+	d.openclawState = openclawstate.New(cfg.CorrelationWindow)
+	adapter := openclaw.NewAdapter(cfg, d.openclawState)
+	adapter.SetSessionObserver(func(sessions []openclaw.SessionInfo) {
+		d.registry.ReplaceSource("openclaw-gateway", openclawSessionsToAgents(sessions))
+	})
+	if err := adapter.Start(ctx, d.eventCh); err != nil {
+		return err
+	}
+	d.openclaw = adapter
+	return nil
+}
+
+func (d *Daemon) statusSnapshot() map[string]interface{} {
+	var (
+		queueDepth   uint64
+		queueDropped uint64
+	)
+	if d.queue != nil {
+		stats := d.queue.Stats()
+		queueDepth = uint64(stats.Depth)
+		queueDropped = stats.Dropped
+	}
+
+	var unclassified uint64
+	if d.classifier != nil {
+		unclassified = d.classifier.UnclassifiedCount()
+	}
+
+	resp := map[string]interface{}{
+		"uptime":                         time.Since(d.startTime).Truncate(time.Second).String(),
+		"agents":                         0,
+		"queue_depth":                    queueDepth,
+		"queue_dropped":                  queueDropped,
+		"pid":                            os.Getpid(),
+		"unclassified_tool_count":        unclassified,
+		"openclaw_connected":             float64(0),
+		"openclaw_session_cache_size":    float64(0),
+		"openclaw_correlation_matches":   float64(0),
+		"openclaw_correlation_ambiguous": float64(0),
+	}
+	if d.registry != nil {
+		resp["agents"] = d.registry.Count()
+	}
+	if d.proxy != nil {
+		for k, v := range d.proxy.Snapshot() {
+			resp[k] = v
+		}
+	}
+	if d.openclaw != nil && d.openclaw.Connected() {
+		resp["openclaw_connected"] = float64(1)
+		resp["openclaw_session_cache_size"] = float64(d.openclaw.SessionCacheSize())
+	}
+	if d.openclawState != nil {
+		stats := d.openclawState.Stats()
+		if resp["openclaw_session_cache_size"] == float64(0) {
+			resp["openclaw_session_cache_size"] = float64(stats.SessionCount)
+		}
+		resp["openclaw_correlation_matches"] = float64(stats.Matches)
+		resp["openclaw_correlation_ambiguous"] = float64(stats.Ambiguous)
+	}
+	return resp
+}
+
 func (d *Daemon) proxyConfig() proxy.Config {
 	providers := make(map[string]proxy.ProviderConfig, len(d.cfg.Adapters.Proxy.Providers))
 	for name, p := range d.cfg.Adapters.Proxy.Providers {
@@ -555,6 +633,20 @@ func (d *Daemon) proxyConfig() proxy.Config {
 		Providers:           providers,
 		Pricing:             pricing,
 	}
+}
+
+func openclawSessionsToAgents(sessions []openclaw.SessionInfo) []discovery.AgentInfo {
+	agents := make([]discovery.AgentInfo, 0, len(sessions))
+	for _, session := range sessions {
+		agents = append(agents, discovery.AgentInfo{
+			ID:             "openclaw/" + session.Key,
+			Type:           "openclaw",
+			Status:         "inactive",
+			LastActivityAt: time.UnixMilli(session.LastActivityAt),
+			DiscoveredAt:   time.Now().UTC(),
+		})
+	}
+	return agents
 }
 
 func (d *Daemon) loadToolRegistryCandidate() (*classify.Registry, error) {
