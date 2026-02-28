@@ -52,6 +52,7 @@ crabwise start
 # Launch AI agents through the proxy:
 crabwise wrap -- codex      # sets HTTPS_PROXY automatically
 crabwise wrap -- claude     # works with any AI agent
+crabwise wrap -- openclaw gateway
 
 # Or set env vars manually:
 eval $(crabwise env)
@@ -76,6 +77,8 @@ Prints an OS-specific command to trust Crabwise's local CA certificate (required
 ### `crabwise start`
 
 Runs the daemon in the foreground. Discovers Claude Code sessions under `~/.claude/projects/` and Codex CLI sessions under `~/.codex/sessions/`, parses JSONL logs, and writes events to SQLite with hash chaining. When CA certificates are configured (via `crabwise init`), the daemon also runs a forward HTTPS proxy that intercepts AI provider traffic for policy enforcement.
+
+If `adapters.openclaw.enabled` is set, the daemon also connects to the local OpenClaw Gateway for session attribution. Phase 1 only governs provider calls that hit the Crabwise proxy. It does not block local OpenClaw tool execution after a model response is already in-process.
 
 Background it yourself with systemd, `&`, or a process manager.
 
@@ -148,6 +151,7 @@ Launches a command with proxy environment variables configured. All HTTPS traffi
 crabwise wrap -- codex
 crabwise wrap -- claude
 crabwise wrap -- python my_agent.py
+crabwise wrap -- openclaw gateway
 ```
 
 ### `crabwise env`
@@ -169,6 +173,25 @@ Commandments file path is configured at:
 commandments:
   file: ~/.config/crabwise/commandments.yaml
 ```
+
+OpenClaw phase-1 attribution config:
+
+```yaml
+adapters:
+  openclaw:
+    enabled: true
+    gateway_url: ws://127.0.0.1:18789
+    api_token_env: OPENCLAW_API_TOKEN
+    session_refresh_interval: 30s
+    correlation_window: 3s
+```
+
+Notes:
+
+- `gateway_url` points at the local OpenClaw Gateway control surface.
+- `OPENCLAW_API_TOKEN` is only needed if your Gateway requires token auth.
+- Changes under `adapters.openclaw.*` require a daemon restart in phase 1. `SIGHUP` still only reloads commandments, tool registry, and proxy mappings.
+- OpenClaw governance in phase 1 is provider-call governance only. Crabwise blocks upstream model requests, not local tool execution inside the OpenClaw host.
 
 ### OpenTelemetry Export
 
