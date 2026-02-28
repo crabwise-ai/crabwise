@@ -517,6 +517,10 @@ func (p *Proxy) buildAuditEvent(eventID string, ts time.Time, provider string, r
 
 	if p.attributor != nil {
 		if match, ok := p.attributor.MatchProxyRequest(ts, provider, req.Model); ok {
+			confidence := "high"
+			if match.SessionKey == "" {
+				confidence = "low"
+			}
 			if match.AgentID != "" {
 				e.AgentID = match.AgentID
 			}
@@ -526,10 +530,11 @@ func (p *Proxy) buildAuditEvent(eventID string, ts time.Time, provider string, r
 				e.Model = match.Model
 			}
 			p.appendArgumentMetadata(e, map[string]interface{}{
-				"openclaw.run_id":         match.RunID,
-				"openclaw.session_key":    match.SessionKey,
-				"openclaw.agent_id":       match.AgentID,
-				"openclaw.thinking_level": match.ThinkingLevel,
+				"openclaw.run_id":                 match.RunID,
+				"openclaw.session_key":            match.SessionKey,
+				"openclaw.agent_id":               match.AgentID,
+				"openclaw.thinking_level":         match.ThinkingLevel,
+				"openclaw.correlation_confidence": confidence,
 			})
 		}
 	}

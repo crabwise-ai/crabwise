@@ -644,7 +644,6 @@ func openclawSessionsToAgents(sessions []openclaw.SessionInfo) []discovery.Agent
 		agents = append(agents, discovery.AgentInfo{
 			ID:             "openclaw/" + session.Key,
 			Type:           "openclaw",
-			Status:         "inactive",
 			LastActivityAt: time.UnixMilli(session.LastActivityAt),
 			DiscoveredAt:   time.Now().UTC(),
 		})

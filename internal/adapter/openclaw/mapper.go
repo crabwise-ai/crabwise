@@ -12,9 +12,10 @@ import (
 
 func mapChatEvent(ts time.Time, payload *ChatEvent, session SessionInfo, provider, model string) *audit.AuditEvent {
 	args, _ := json.Marshal(map[string]interface{}{
-		"openclaw.run_id":      payload.RunID,
-		"openclaw.session_key": payload.SessionKey,
-		"openclaw.state":       payload.State,
+		"openclaw.run_id":                 payload.RunID,
+		"openclaw.session_key":            payload.SessionKey,
+		"openclaw.state":                  payload.State,
+		"openclaw.correlation_confidence": "observer",
 	})
 
 	return &audit.AuditEvent{
@@ -32,16 +33,17 @@ func mapChatEvent(ts time.Time, payload *ChatEvent, session SessionInfo, provide
 		InputTokens:     tokenCount(payload.Usage, true),
 		OutputTokens:    tokenCount(payload.Usage, false),
 		AdapterID:       "openclaw-gateway",
-		AdapterType:     "openclaw",
+		AdapterType:     "gateway_observer",
 	}
 }
 
 func mapAgentEvent(payload *AgentEvent) *audit.AuditEvent {
 	args, _ := json.Marshal(map[string]interface{}{
-		"openclaw.run_id":      payload.RunID,
-		"openclaw.session_key": payload.SessionKey,
-		"stream":               payload.Stream,
-		"data":                 payload.Data,
+		"openclaw.run_id":                 payload.RunID,
+		"openclaw.session_key":            payload.SessionKey,
+		"openclaw.correlation_confidence": "observer",
+		"stream":                          payload.Stream,
+		"data":                            payload.Data,
 	})
 
 	return &audit.AuditEvent{
@@ -54,7 +56,7 @@ func mapAgentEvent(payload *AgentEvent) *audit.AuditEvent {
 		SessionID:   payload.SessionKey,
 		Outcome:     audit.OutcomeSuccess,
 		AdapterID:   "openclaw-gateway",
-		AdapterType: "openclaw",
+		AdapterType: "gateway_observer",
 	}
 }
 
@@ -80,8 +82,4 @@ func tokenCount(usage *TokenUsage, input bool) int64 {
 		return usage.InputTokens
 	}
 	return usage.OutputTokens
-}
-
-func sessionKeyModel(string) string {
-	return ""
 }
