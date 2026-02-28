@@ -12,10 +12,39 @@ import (
 	"testing"
 	"time"
 
+	"github.com/crabwise-ai/crabwise/internal/adapter/proxy"
 	"github.com/crabwise-ai/crabwise/internal/discovery"
 	"github.com/crabwise-ai/crabwise/internal/openclawstate"
 	"github.com/gorilla/websocket"
 )
+
+var daemonTestProxyMappingYAML = []byte(`
+version: "1"
+provider: openai
+request:
+  model: { path: "$.model" }
+  stream: { path: "$.stream", default: false }
+  tools:
+    path: "$.tools"
+    each:
+      name: { path: "$.function.name" }
+      raw_args: { path: "$.function.parameters", serialize: json }
+  input_summary: { path: "$.messages[-1].content", truncate: 200 }
+response:
+  model: { path: "$.model" }
+  finish_reason: { path: "$.choices[0].finish_reason" }
+  usage:
+    input_tokens: { path: "$.usage.prompt_tokens" }
+    output_tokens: { path: "$.usage.completion_tokens" }
+  error:
+    error_type: { path: "$.error.type" }
+    error_message: { path: "$.error.message" }
+stream:
+  usage:
+    input_tokens: { path: "$.usage.prompt_tokens" }
+    output_tokens: { path: "$.usage.completion_tokens" }
+  finish_reason: { path: "$.choices[0].finish_reason" }
+`)
 
 func TestReloadRuntime_ReturnsCombinedErrorWhenBothReloadsFail(t *testing.T) {
 	dir := t.TempDir()
@@ -174,6 +203,99 @@ func TestDaemonStartsOpenClawAdapter(t *testing.T) {
 	}
 
 	t.Fatal("expected openclaw session to be registered")
+}
+
+func TestDaemonInjectsOpenClawAttributor(t *testing.T) {
+	proxy.SetEmbeddedOpenAIMapping(daemonTestProxyMappingYAML)
+
+	server := newDaemonFakeGatewayServer(t, func(conn *websocket.Conn) {
+		writeDaemonGatewayJSON(t, conn, map[string]interface{}{
+			"type":     "hello-ok",
+			"protocol": 3,
+			"snapshot": map[string]interface{}{
+				"presence": []interface{}{},
+				"health":   map[string]interface{}{},
+				"stateVersion": map[string]interface{}{
+					"presence": 1,
+					"health":   1,
+				},
+			},
+			"features": map[string]interface{}{
+				"methods": []string{"sessions.list"},
+				"events":  []string{"chat"},
+			},
+		})
+
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		var req struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(data, &req); err != nil {
+			t.Errorf("unmarshal request: %v", err)
+			return
+		}
+
+		writeDaemonGatewayJSON(t, conn, map[string]interface{}{
+			"type": "res",
+			"id":   req.ID,
+			"ok":   true,
+			"payload": map[string]interface{}{
+				"sessions": []map[string]interface{}{},
+			},
+		})
+	})
+	defer server.Close()
+
+	px, err := proxy.New(proxy.Config{
+		DefaultProvider:   "openai",
+		UpstreamTimeout:   time.Second,
+		StreamIdleTimeout: time.Second,
+		MaxRequestBody:    1 << 20,
+		Providers: map[string]proxy.ProviderConfig{
+			"openai": {
+				UpstreamBaseURL: "https://api.openai.com",
+				AuthMode:        "passthrough",
+				RoutePatterns:   []string{"/v1/*"},
+			},
+		},
+	}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("proxy.New: %v", err)
+	}
+
+	d := &Daemon{
+		cfg: &Config{
+			Adapters: AdaptersConfig{
+				OpenClaw: OpenClawConfig{
+					Enabled:                true,
+					GatewayURL:             server.URL(),
+					SessionRefreshInterval: Duration(time.Hour),
+					CorrelationWindow:      Duration(3 * time.Second),
+				},
+			},
+		},
+		registry: discovery.NewRegistry(),
+		proxy:    px,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := d.startOpenClaw(ctx); err != nil {
+		t.Fatalf("start openclaw: %v", err)
+	}
+	defer func() {
+		if d.openclaw != nil {
+			_ = d.openclaw.Stop()
+		}
+	}()
+
+	if !d.proxy.HasRequestAttributor() {
+		t.Fatal("expected daemon to inject openclaw attributor into proxy")
+	}
 }
 
 func newDaemonFakeGatewayServer(t *testing.T, onConnect func(conn *websocket.Conn)) *daemonFakeGatewayServer {
