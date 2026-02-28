@@ -28,6 +28,10 @@ type statusPollMsg struct {
 	proxyErrors       interface{}
 	mappingDegraded   interface{}
 	unclassifiedTools interface{}
+	openclawConnected bool
+	openclawSessions  interface{}
+	openclawMatches   interface{}
+	openclawAmbiguous interface{}
 	err               error
 }
 
@@ -48,6 +52,10 @@ type statusTUIModel struct {
 	proxyErrors       interface{}
 	mappingDegraded   interface{}
 	unclassifiedTools interface{}
+	openclawConnected bool
+	openclawSessions  interface{}
+	openclawMatches   interface{}
+	openclawAmbiguous interface{}
 	otelEnabled       bool
 	proxyListen       string
 	logWatcherEnabled bool
@@ -105,6 +113,10 @@ func (m statusTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.proxyErrors = msg.proxyErrors
 			m.mappingDegraded = msg.mappingDegraded
 			m.unclassifiedTools = msg.unclassifiedTools
+			m.openclawConnected = msg.openclawConnected
+			m.openclawSessions = msg.openclawSessions
+			m.openclawMatches = msg.openclawMatches
+			m.openclawAmbiguous = msg.openclawAmbiguous
 		}
 
 	case statusTUITickMsg:
@@ -174,6 +186,19 @@ func (m statusTUIModel) View() string {
 		)
 	}
 
+	if m.openclawSessions != nil {
+		openclawState := "disconnected"
+		if m.openclawConnected {
+			openclawState = "connected"
+		}
+		sessionsStr := fmt.Sprintf("Sessions: %v", m.openclawSessions)
+		fmt.Fprintf(&b, "  %s %s   %s\n",
+			tui.StatusIcon(openclawState),
+			padRight(tui.StyleBody.Render("OpenClaw"), tui.StyleMuted.Render(openclawState), 30),
+			tui.StyleMuted.Render(sessionsStr),
+		)
+	}
+
 	// OTel
 	if m.otelEnabled {
 		fmt.Fprintf(&b, "  %s %s\n",
@@ -218,6 +243,20 @@ func (m statusTUIModel) View() string {
 			tui.StyleBody.Render(fmt.Sprintf("%v", m.mappingDegraded)),
 			tui.StyleMuted.Render("Unclassified:"),
 			tui.StyleBody.Render(fmt.Sprintf("%v", m.unclassifiedTools)),
+		)
+		b.WriteString("\n")
+	}
+
+	if m.openclawSessions != nil {
+		b.WriteString(sectionDivider("OpenClaw", w))
+		b.WriteString("\n\n")
+		fmt.Fprintf(&b, "  %s %v      %s %v      %s %v\n",
+			tui.StyleMuted.Render("Sessions:"),
+			m.openclawSessions,
+			tui.StyleMuted.Render("Matches:"),
+			m.openclawMatches,
+			tui.StyleMuted.Render("Ambiguous:"),
+			m.openclawAmbiguous,
 		)
 		b.WriteString("\n")
 	}
@@ -316,6 +355,14 @@ func pollStatus(socketPath string) tea.Cmd {
 		msg.proxyErrors = status["proxy_upstream_errors"]
 		msg.mappingDegraded = status["mapping_degraded_count"]
 		msg.unclassifiedTools = status["unclassified_tool_count"]
+		if v, ok := status["openclaw_connected"]; ok {
+			if f, ok := v.(float64); ok {
+				msg.openclawConnected = f > 0
+			}
+		}
+		msg.openclawSessions = status["openclaw_session_cache_size"]
+		msg.openclawMatches = status["openclaw_correlation_matches"]
+		msg.openclawAmbiguous = status["openclaw_correlation_ambiguous"]
 
 		return msg
 	}
