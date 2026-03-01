@@ -31,10 +31,10 @@ This problem is not specific to OpenClaw. Any autonomous AI agent that runs as a
 - **MCP servers** that make outbound provider calls from a long-running daemon process
 - **Any future agent** installed via a package manager or onboarding script that creates a service unit
 
-The `crabwise service inject` command is designed to be agent-agnostic. It injects the same proxy environment variables into any named service unit. The only OpenClaw-specific detail is the default `--service` name. A user governing a future agent would run:
+The `crabwise service inject` command is designed to be agent-agnostic. It injects the same proxy environment variables into any named service unit. The `--agent` flag maps friendly names to platform-specific unit names via a config registry. Unknown names are treated as literal unit names, so the escape hatch is always there. A user governing a future agent would run:
 
 ```bash
-sudo crabwise service inject --service my-future-agent --restart
+sudo crabwise service inject --agent my-future-agent --restart
 ```
 
 This makes Crabwise's governance model complete across both interaction patterns:
@@ -42,8 +42,8 @@ This makes Crabwise's governance model complete across both interaction patterns
 | Agent type | Proxy injection method | Example |
 |---|---|---|
 | Interactive CLI | `crabwise wrap -- <agent>` | Codex, Claude Code |
-| System daemon | `sudo crabwise service inject --scope system --service <name>` | OpenClaw, future autonomous agents |
-| User daemon | `crabwise service inject --scope user --service <name>` | Local dev agents, per-user MCP servers |
+| System daemon | `sudo crabwise service inject --scope system --agent <name>` | OpenClaw, future autonomous agents |
+| User daemon | `crabwise service inject --scope user --agent <name>` | Local dev agents, per-user MCP servers |
 
 Both paths converge at the same forward proxy, commandment engine, and audit trail. The governance guarantees are identical regardless of how the agent was launched.
 
@@ -59,7 +59,7 @@ Both paths converge at the same forward proxy, commandment engine, and audit tra
 
 ## Non-Goals
 
-- Supporting `/Library/LaunchAgents` in phase 1
+- Supporting `/Library/LaunchAgents` (the admin-shared agent directory) in phase 1 — per-user `~/Library/LaunchAgents` is in scope
 - Auto-detecting scope by searching both domains and picking one
 - Managing service installation, enablement, or bootstrapping
 
@@ -167,15 +167,17 @@ Traffic flow:
   Service (user):    user systemd/launchd loads drop-in/plist env → agent → proxy → upstream
 
 Lifecycle:
-  $ sudo crabwise service inject --scope system --service openclaw-gateway
+  $ sudo crabwise service inject --agent openclaw
+    --agent openclaw resolves to openclaw-gateway (Linux) or com.openclaw.gateway (macOS) via registry
     Linux: writes /etc/systemd/system/openclaw-gateway.service.d/crabwise-proxy.conf
     macOS: patches /Library/LaunchDaemons/com.openclaw.gateway.plist
 
-  $ crabwise service inject --scope user --service my-agent
+  $ crabwise service inject --scope user --agent my-agent
+    --agent my-agent not in registry, treated as literal unit name
     Linux: writes ~/.config/systemd/user/my-agent.service.d/crabwise-proxy.conf
     macOS: patches ~/Library/LaunchAgents/com.my-agent.plist
 
-  $ sudo crabwise service remove --scope system --service openclaw-gateway --restart
+  $ sudo crabwise service remove --agent openclaw --restart
     Deletes the override, reloads, restarts
 
 Privilege model:
@@ -192,19 +194,41 @@ Scope and privilege model:
 
 ## CLI Model
 
-The `service` command gets an explicit scope flag:
+The `service` command uses `--agent` to identify the target and `--scope` for the service domain:
 
 ```bash
-crabwise service inject --scope system --service openclaw-gateway
-crabwise service inject --scope user --service my-agent
-crabwise service remove --scope user --service my-agent
-crabwise service status --scope system --service openclaw-gateway
+# Known agent — resolves via config registry
+sudo crabwise service inject --agent openclaw --restart
+
+# Custom agent — literal unit name fallback
+crabwise service inject --scope user --agent my-custom-daemon --restart
+
+# Status and removal
+crabwise service status --agent openclaw
+sudo crabwise service remove --agent openclaw --restart
 ```
 
-Rules:
+### Agent Registry
 
-- `--scope` accepts `system` or `user`
-- default is `system`
+The `--agent` flag maps friendly names to platform-specific unit names via the config:
+
+```yaml
+service:
+  agents:
+    openclaw:
+      systemd_unit: openclaw-gateway   # linux
+      launchd_plist: com.openclaw.gateway  # darwin
+```
+
+When `--agent` matches a key in `service.agents`, Crabwise uses the platform-specific unit name for resolution. When it does not match, the value is treated as a literal unit name. This means `--agent openclaw` and `--agent openclaw-gateway` both work on Linux — the first via the registry, the second via fallback.
+
+New agents are added by appending entries to the config. Crabwise ships with `openclaw` built in.
+
+### Flags
+
+- `--agent` is required; identifies the agent or literal service name
+- `--scope` accepts `system` or `user`; default is `system`
+- `--restart` triggers a service restart after inject or remove
 - no fallback between scopes
 - `system` without privileges prints the exact elevated command to run
 - `sudo ... --scope user` is rejected instead of trying to operate in root's user domain
@@ -243,7 +267,7 @@ Phase 1 intentionally excludes `/Library/LaunchAgents` because it mixes admin-ma
 
 ## Architecture
 
-`internal/service` should model a scoped service target explicitly.
+`internal/service` defines a `Manager` interface that each platform implements. Resolution uses embedded platform-specific structs so consumers never read fields that don't apply to the current platform.
 
 Expected shape:
 
@@ -255,31 +279,51 @@ const (
     ScopeUser   Scope = "user"
 )
 
-type Target struct {
-    Manager     ServiceManager
-    Scope       Scope
+type Resolution struct {
     ServiceName string
+    Scope       Scope
+    Systemd     *SystemdResolution
+    Launchd     *LaunchdResolution
 }
 
-type Resolution struct {
-    Target       Target
-    UnitName     string
-    UnitPath     string
-    DropInRoot   string
+type SystemdResolution struct {
+    UnitName   string
+    UnitPath   string
+    DropInRoot string
+}
+
+type LaunchdResolution struct {
     PlistPath    string
-    LaunchLabel  string
+    Label        string
     DomainTarget string
 }
+
+type Manager interface {
+    Resolve(name string, scope Scope) (Resolution, error)
+    Inject(res Resolution, cfg EnvConfig) (InjectResult, error)
+    Remove(res Resolution, cfg EnvConfig) (RemoveResult, error)
+    CheckInjected(res Resolution) bool
+    Restart(res Resolution) error
+}
+
+type AgentServiceEntry struct {
+    SystemdUnit  string `yaml:"systemd_unit"`
+    LaunchdPlist string `yaml:"launchd_plist"`
+}
 ```
+
+`DetectManager()` returns the concrete implementation for the current OS. Each platform manager (SystemdManager, LaunchdManager) carries its own exec shims and search directories as struct fields, making them fully testable without package-level mutable state.
 
 Commands use one flow:
 
 1. parse `--scope`
-2. detect service manager
-3. resolve the service in the chosen scope
-4. inject, remove, status, and restart against that resolved target
+2. get manager via `DetectManager()`
+3. resolve the service via `mgr.Resolve(name, scope)`
+4. operate via `mgr.Inject`, `mgr.Remove`, `mgr.CheckInjected`, or `mgr.Restart`
 
-This keeps scope and privilege handling in one place instead of spreading platform rules across CLI helpers.
+This keeps scope and privilege handling in one place, eliminates switch-statement dispatch, and makes adding future service managers (e.g., Windows services, runit) trivial.
+
+Proxy environment variables are defined once in `internal/service` as an exported `ProxyEnvVars(cfg)` function. Both `crabwise wrap` and `crabwise service inject` call into it via a shared `EnvConfig` constructed from the daemon config. This guarantees env parity without duplicating the variable list.
 
 ## Injection Semantics
 
@@ -297,22 +341,24 @@ Injection must match `crabwise wrap` env parity:
 
 Systemd uses a dedicated drop-in file. launchd patches `EnvironmentVariables` inside the resolved plist.
 
+Injection is idempotent. Running `inject` on an already-injected service overwrites the existing configuration with current values. This is safe to re-run after config changes.
+
 Lifecycle examples:
 
 ```bash
-# Linux/macOS production daemon, default scope
-sudo crabwise service inject --scope system --service openclaw-gateway --restart
+# OpenClaw production daemon (resolves via registry)
+sudo crabwise service inject --agent openclaw --restart
 
-# User-scoped local daemon
-crabwise service inject --scope user --service my-agent --restart
+# User-scoped local daemon (literal fallback)
+crabwise service inject --scope user --agent my-agent --restart
 
 # Verify resolved target and injection state
-crabwise service status --scope system --service openclaw-gateway
-crabwise service status --scope user --service my-agent
+crabwise service status --agent openclaw
+crabwise service status --scope user --agent my-agent
 
 # Remove later
-sudo crabwise service remove --scope system --service openclaw-gateway --restart
-crabwise service remove --scope user --service my-agent --restart
+sudo crabwise service remove --agent openclaw --restart
+crabwise service remove --scope user --agent my-agent --restart
 ```
 
 ## Status Semantics
@@ -324,7 +370,7 @@ Status must distinguish:
 
 Truthfulness rules:
 
-- systemd: `injected` means the Crabwise drop-in file exists and contains a non-empty `HTTPS_PROXY`
+- systemd: `injected` means the Crabwise drop-in file exists, begins with the expected header comment (`# Generated by crabwise service inject`), and contains a non-empty `HTTPS_PROXY`
 - launchd: `injected` means the plist contains a non-empty `EnvironmentVariables:HTTPS_PROXY`
 
 This avoids false positives from orphaned, empty, or corrupted override files.
@@ -333,6 +379,7 @@ This avoids false positives from orphaned, empty, or corrupted override files.
 
 - Missing target in the selected scope returns a hard error for inject and a truthful `not found` status for status
 - No automatic fallback from `system` to `user` or vice versa
+- Unknown `--agent` values are treated as literal unit names (fallback)
 - `system` scope without privilege prints the exact `sudo crabwise service ...` command
 - `user` scope invoked through `sudo` fails with a clear explanation
 - Restart failures are reported separately from inject/remove success
