@@ -10,6 +10,107 @@
 
 ---
 
+## Problem Statement
+
+Crabwise already governs provider calls for interactive agents by injecting proxy environment variables at process launch time through `crabwise wrap`.
+
+That breaks down for service-managed agents because:
+
+1. they are started by system managers rather than an interactive shell
+2. they persist across restarts and reboots
+3. the proxy environment must live in the service definition, not just the shell session
+
+This feature closes that gap for both service domains that matter operationally:
+
+- `system` services used by production daemons like OpenClaw Gateway
+- `user` services used by local per-user agents and developer daemons
+
+## Architecture Diagram
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                             USER'S SYSTEM                                   │
+│                                                                             │
+│  ┌───────────────────────────────────┐                                      │
+│  │       Interactive Agents          │                                      │
+│  │       (launched from shell)       │                                      │
+│  │                                   │                                      │
+│  │  $ crabwise wrap -- codex         │                                      │
+│  │  $ crabwise wrap -- claude        │                                      │
+│  │                                   │                                      │
+│  │  HTTPS_PROXY injected via exec()  │                                      │
+│  └──────────────┬────────────────────┘                                      │
+│                 │                                                            │
+│                 │  provider API calls                                        │
+│                 ▼                                                            │
+│  ┌────────────────────────────────────────────────────────┐                  │
+│  │              Crabwise Daemon  (crabwise start)         │                  │
+│  │                                                        │                  │
+│  │  ┌──────────────┐  ┌─────────────────────────────────┐ │                  │
+│  │  │ Forward HTTPS │  │ OpenClaw Gateway Adapter        │ │                  │
+│  │  │ Proxy :9119   │  │ (read-only observer)            │ │                  │
+│  │  │               │  │ • session cache                 │ │                  │
+│  │  │ • intercept   │  │ • run correlation               │ │                  │
+│  │  │ • decrypt     │  │ • event enrichment              │ │                  │
+│  │  │ • evaluate    │  └────────────┬────────────────────┘ │                  │
+│  │  │ • block/allow │              │                      │                  │
+│  │  └──────┬───────┘  ┌────────────┴───────────────────┐  │                  │
+│  │         │          │ Correlation Store (in-memory)   │  │                  │
+│  │         │          │ runId → sessionKey → agentId    │  │                  │
+│  │         │          └────────────────────────────────┘   │                  │
+│  │         │                  ▲ lookup                     │                  │
+│  │         ▼                  │                            │                  │
+│  │  ┌─────────────────────────┴───────────────────────┐    │                  │
+│  │  │ Commandment Engine → Audit Trail (SQLite)       │    │                  │
+│  │  │ block / warn / allow → hash-chain → queue       │    │                  │
+│  │  └─────────────────────────────────────────────────┘    │                  │
+│  └────────────────────────────────────────────────────────┘                  │
+│                 ▲                                                            │
+│                 │  provider API calls                                        │
+│                 │                                                            │
+│  ┌──────────────┴──────────────────────────────────────────────────────────┐ │
+│  │       Service-Managed Agents  (run by systemd / launchd)                │ │
+│  │                                                                         │ │
+│  │  Linux system scope (root)          Linux user scope (no root)           │ │
+│  │  ┌──────────────────────────────┐   ┌──────────────────────────────┐     │ │
+│  │  │ /etc/systemd/system/         │   │ ~/.config/systemd/user/      │     │ │
+│  │  │   <unit>.service.d/          │   │   <unit>.service.d/          │     │ │
+│  │  │   crabwise-proxy.conf       │   │   crabwise-proxy.conf       │     │ │
+│  │  └──────────────────────────────┘   └──────────────────────────────┘     │ │
+│  │                                                                         │ │
+│  │  macOS system scope (root)          macOS user scope (no root)           │ │
+│  │  ┌──────────────────────────────┐   ┌──────────────────────────────┐     │ │
+│  │  │ /Library/LaunchDaemons/      │   │ ~/Library/LaunchAgents/      │     │ │
+│  │  │   <label>.plist              │   │   <label>.plist              │     │ │
+│  │  │   EnvironmentVariables patch │   │   EnvironmentVariables patch │     │ │
+│  │  └──────────────────────────────┘   └──────────────────────────────┘     │ │
+│  └─────────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│                 │  allowed requests only                                     │
+│                 ▼                                                            │
+│           ┌───────────┐                                                     │
+│           │ Internet  │  api.openai.com, api.anthropic.com, etc.            │
+│           └───────────┘                                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+Scope rules this plan must preserve:
+
+- default scope is `system`
+- no fallback between scopes
+- `system` is privileged
+- `user` is unprivileged
+- injected status must mean `HTTPS_PROXY` is actually present
+
+Lifecycle examples this implementation must support:
+
+```bash
+sudo crabwise service inject --scope system --service openclaw-gateway --restart
+crabwise service inject --scope user --service my-agent --restart
+crabwise service status --scope system --service openclaw-gateway
+crabwise service status --scope user --service my-agent
+```
+
 ### Task 1: Add scope-aware service model and env parity helpers
 
 **Files:**
@@ -254,26 +355,174 @@ Expected: FAIL because helpers do not exist yet.
 
 Create `internal/service/systemd.go`:
 
-- `GenerateSystemdDropIn(cfg EnvConfig) string`
-- `InjectSystemd(res Resolution, cfg EnvConfig) (InjectResult, error)`
-- `RemoveSystemd(res Resolution) (RemoveResult, error)`
-- `CheckSystemdInjected(res Resolution) bool`
+```go
+package service
 
-`CheckSystemdInjected` must open the Crabwise drop-in and require a non-empty `HTTPS_PROXY=` entry.
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+const dropInFileName = "crabwise-proxy.conf"
+
+type InjectResult struct {
+	Path    string
+	Written bool
+}
+
+type RemoveResult struct {
+	Path    string
+	Removed bool
+}
+
+func GenerateSystemdDropIn(cfg EnvConfig) string {
+	var b strings.Builder
+	b.WriteString("# Generated by crabwise service inject — do not edit manually.\n")
+	b.WriteString("[Service]\n")
+	for _, env := range proxyEnvVars(cfg) {
+		b.WriteString(fmt.Sprintf("Environment=\"%s=%s\"\n", env.Key, env.Value))
+	}
+	return b.String()
+}
+
+func InjectSystemd(res Resolution, cfg EnvConfig) (InjectResult, error) {
+	dropInDir := filepath.Join(res.DropInRoot, res.UnitName+".d")
+	dropInPath := filepath.Join(dropInDir, dropInFileName)
+
+	if err := os.MkdirAll(dropInDir, 0755); err != nil {
+		return InjectResult{Path: dropInPath}, fmt.Errorf("create drop-in dir: %w", err)
+	}
+
+	content := GenerateSystemdDropIn(cfg)
+	if err := os.WriteFile(dropInPath, []byte(content), 0644); err != nil {
+		return InjectResult{Path: dropInPath}, fmt.Errorf("write drop-in: %w", err)
+	}
+
+	return InjectResult{Path: dropInPath, Written: true}, nil
+}
+
+func RemoveSystemd(res Resolution) (RemoveResult, error) {
+	dropInDir := filepath.Join(res.DropInRoot, res.UnitName+".d")
+	dropInPath := filepath.Join(dropInDir, dropInFileName)
+
+	if _, err := os.Stat(dropInPath); os.IsNotExist(err) {
+		return RemoveResult{Path: dropInPath, Removed: false}, nil
+	}
+
+	if err := os.Remove(dropInPath); err != nil {
+		return RemoveResult{Path: dropInPath}, fmt.Errorf("remove drop-in: %w", err)
+	}
+
+	entries, err := os.ReadDir(dropInDir)
+	if err == nil && len(entries) == 0 {
+		_ = os.Remove(dropInDir)
+	}
+
+	return RemoveResult{Path: dropInPath, Removed: true}, nil
+}
+
+// CheckSystemdInjected returns true only if the drop-in file exists AND
+// contains a non-empty HTTPS_PROXY assignment. Path existence alone is
+// not sufficient — a corrupted or emptied file must not report as injected.
+func CheckSystemdInjected(res Resolution) bool {
+	dropInPath := filepath.Join(res.DropInRoot, res.UnitName+".d", dropInFileName)
+	data, err := os.ReadFile(dropInPath)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, "HTTPS_PROXY=") && !strings.HasSuffix(strings.TrimSpace(line), "HTTPS_PROXY=\"\"") {
+			return true
+		}
+	}
+	return false
+}
+```
 
 Create `internal/service/launchd.go`:
 
-- `GenerateLaunchdPlistCommands(plistPath string, cfg EnvConfig) []string`
-- `GenerateLaunchdRemoveCommands(plistPath string, cfg EnvConfig) []string`
-- `CheckLaunchdInjected(plistPath string) bool`
-- `ReadLaunchdLabel(plistPath string) (string, error)`
-- `LaunchdDomain(scope Scope, uid int) string`
-
-Use package-level exec shims:
-
 ```go
-var plistBuddyOutput = func(args ...string) ([]byte, error) { ... }
-var plistBuddyRun = func(cmd string) error { ... }
+package service
+
+import (
+	"fmt"
+	"os/exec"
+	"strings"
+)
+
+// Exec shims for testing. Tests override these to avoid calling real PlistBuddy.
+var execCommand = exec.Command
+var execOutput = func(name string, args ...string) ([]byte, error) {
+	return execCommand(name, args...).Output()
+}
+
+func GenerateLaunchdPlistCommands(plistPath string, cfg EnvConfig) []string {
+	envVars := proxyEnvVars(cfg)
+	cmds := []string{
+		fmt.Sprintf("/usr/libexec/PlistBuddy -c 'Add :EnvironmentVariables dict' %s 2>/dev/null || true", plistPath),
+	}
+	for _, env := range envVars {
+		cmds = append(cmds, fmt.Sprintf(
+			"/usr/libexec/PlistBuddy -c 'Set :EnvironmentVariables:%s %s' %s 2>/dev/null || "+
+				"/usr/libexec/PlistBuddy -c 'Add :EnvironmentVariables:%s string %s' %s",
+			env.Key, env.Value, plistPath,
+			env.Key, env.Value, plistPath,
+		))
+	}
+	return cmds
+}
+
+func GenerateLaunchdRemoveCommands(plistPath string, cfg EnvConfig) []string {
+	envVars := proxyEnvVars(cfg)
+	var cmds []string
+	for _, env := range envVars {
+		cmds = append(cmds, fmt.Sprintf(
+			"/usr/libexec/PlistBuddy -c 'Delete :EnvironmentVariables:%s' %s 2>/dev/null || true",
+			env.Key, plistPath,
+		))
+	}
+	return cmds
+}
+
+// CheckLaunchdInjected returns true only if the plist contains a non-empty
+// HTTPS_PROXY in EnvironmentVariables. This avoids false positives from
+// plists that exist but were never injected.
+func CheckLaunchdInjected(plistPath string) bool {
+	out, err := execOutput(
+		"/usr/libexec/PlistBuddy", "-c", "Print :EnvironmentVariables:HTTPS_PROXY", plistPath,
+	)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) != ""
+}
+
+// ReadLaunchdLabel reads the Label key from a plist. The label is the
+// canonical launchd service identifier and may differ from the filename.
+func ReadLaunchdLabel(plistPath string) (string, error) {
+	out, err := execOutput(
+		"/usr/libexec/PlistBuddy", "-c", "Print :Label", plistPath,
+	)
+	if err != nil {
+		return "", fmt.Errorf("read Label from %s: %w", plistPath, err)
+	}
+	label := strings.TrimSpace(string(out))
+	if label == "" {
+		return "", fmt.Errorf("empty Label in %s", plistPath)
+	}
+	return label, nil
+}
+
+// LaunchdDomain returns the launchctl domain target for the given scope.
+// system scope uses "system/<label>", user scope uses "gui/<uid>/<label>".
+func LaunchdDomain(scope Scope, uid int, label string) string {
+	if scope == ScopeSystem {
+		return "system/" + label
+	}
+	return fmt.Sprintf("gui/%d/%s", uid, label)
+}
 ```
 
 **Step 4: Run test to verify it passes**
@@ -322,17 +571,100 @@ Expected: FAIL because restart and privilege helpers do not exist.
 
 **Step 3: Write minimal implementation**
 
-Create `internal/service/restart.go` with:
+Create `internal/service/restart.go`:
 
-- `ValidatePrivileges(scope Scope, uid int, sudoUser string) error`
-- `RestartTarget(res Resolution) error`
+```go
+package service
 
-Rules:
+import (
+	"fmt"
+	"os"
+	"os/exec"
+)
 
-- `system` scope requires elevated privileges
-- `user` scope rejects `sudo`/uid mismatch rather than operating in root's user domain
-- Linux user restart uses `systemctl --user`
-- macOS user restart uses `launchctl kickstart -k gui/<uid>/<label>`
+// ValidatePrivileges checks whether the current process has the right
+// privilege level for the requested scope. Returns a descriptive error
+// when the privilege model is violated.
+//
+// Rules:
+//   - system scope requires uid 0 (root)
+//   - user scope rejects uid 0 when SUDO_USER is set, because that
+//     means the user ran "sudo crabwise service --scope user ..." which
+//     would operate in root's user domain instead of their own
+func ValidatePrivileges(scope Scope, uid int, sudoUser string) error {
+	switch scope {
+	case ScopeSystem:
+		if uid != 0 {
+			return fmt.Errorf("system scope requires root; run with sudo")
+		}
+	case ScopeUser:
+		if uid == 0 && sudoUser != "" {
+			return fmt.Errorf(
+				"user scope must be run as the owning user, not through sudo; "+
+					"run without sudo as %q instead", sudoUser,
+			)
+		}
+	}
+	return nil
+}
+
+// SuggestElevatedCommand returns the sudo-prefixed version of the
+// current command for printing when system scope fails the privilege check.
+func SuggestElevatedCommand(args []string) string {
+	return "sudo " + joinArgs(args)
+}
+
+func joinArgs(args []string) string {
+	out := ""
+	for i, a := range args {
+		if i > 0 {
+			out += " "
+		}
+		out += a
+	}
+	return out
+}
+
+// restartCmd is overridable for testing.
+var restartCmd = func(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// RestartTarget reloads and restarts the service described by the resolution.
+func RestartTarget(res Resolution) error {
+	switch res.Target.Manager {
+	case ManagerSystemd:
+		return restartSystemd(res)
+	case ManagerLaunchd:
+		return restartLaunchd(res)
+	default:
+		return fmt.Errorf("unsupported manager %q", res.Target.Manager)
+	}
+}
+
+func restartSystemd(res Resolution) error {
+	if res.Target.Scope == ScopeUser {
+		if err := restartCmd("systemctl", "--user", "daemon-reload"); err != nil {
+			return fmt.Errorf("systemctl --user daemon-reload: %w", err)
+		}
+		return restartCmd("systemctl", "--user", "restart", res.Target.ServiceName)
+	}
+	if err := restartCmd("systemctl", "daemon-reload"); err != nil {
+		return fmt.Errorf("systemctl daemon-reload: %w", err)
+	}
+	return restartCmd("systemctl", "restart", res.Target.ServiceName)
+}
+
+func restartLaunchd(res Resolution) error {
+	if res.DomainTarget == "" {
+		return fmt.Errorf("no domain target resolved for launchd restart")
+	}
+	return restartCmd("launchctl", "kickstart", "-k", res.DomainTarget)
+}
+```
 
 **Step 4: Run test to verify it passes**
 
