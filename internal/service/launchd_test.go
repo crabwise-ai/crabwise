@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -50,8 +51,8 @@ func writeFakePlist(t *testing.T, dir, name, label string) string {
 func makeExitErrorWithStderr(stderr string) *exec.ExitError {
 	cmd := exec.Command("sh", "-c", fmt.Sprintf("echo -n %q >&2; exit 1", stderr))
 	_, err := cmd.Output()
-	exitErr, ok := err.(*exec.ExitError)
-	if !ok {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
 		panic(fmt.Sprintf("expected *exec.ExitError, got %T", err))
 	}
 	return exitErr
