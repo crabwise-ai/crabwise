@@ -407,6 +407,30 @@ func (d *Daemon) registerIPC() {
 		}, nil
 	})
 
+	d.ipcServer.Handle("audit.tokens", func(params json.RawMessage) (interface{}, error) {
+		var filter audit.QueryFilter
+		if len(params) > 0 {
+			var f struct {
+				Since string `json:"since"`
+				Until string `json:"until"`
+				Agent string `json:"agent"`
+			}
+			if err := json.Unmarshal(params, &f); err != nil {
+				return nil, fmt.Errorf("parse params: %w", err)
+			}
+			if f.Since != "" {
+				t, _ := time.Parse(time.RFC3339, f.Since)
+				filter.Since = &t
+			}
+			if f.Until != "" {
+				t, _ := time.Parse(time.RFC3339, f.Until)
+				filter.Until = &t
+			}
+			filter.Agent = f.Agent
+		}
+		return audit.QueryTokenSummary(d.store.DB(), filter)
+	})
+
 	d.ipcServer.Handle("audit.export", func(params json.RawMessage) (interface{}, error) {
 		result, err := audit.QueryEvents(d.store.DB(), audit.QueryFilter{})
 		if err != nil {
