@@ -416,9 +416,6 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 	preflight.InputTokens = normResp.InputTokens
 	preflight.OutputTokens = normResp.OutputTokens
 
-	costResult := ComputeCost(p.cfg.Pricing, preflight.Model, preflight.InputTokens, preflight.OutputTokens)
-	preflight.CostUSD = costResult.CostUSD
-
 	meta := map[string]interface{}{
 		"request_id":       eventID,
 		"endpoint":         r.URL.Path,
@@ -433,9 +430,6 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	if normResp.ErrorMessage != "" {
 		meta["error_message"] = normResp.ErrorMessage
-	}
-	if costResult.UnknownModel {
-		meta["cost_unknown_model"] = true
 	}
 	if !firstTokenAt.IsZero() {
 		meta["first_token_ms"] = firstTokenAt.Sub(start).Milliseconds()
@@ -457,7 +451,6 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 		FinishReason:  normResp.FinishReason,
 		InputTokens:   preflight.InputTokens,
 		OutputTokens:  preflight.OutputTokens,
-		CostUSD:       preflight.CostUSD,
 		Outcome:       string(preflight.Outcome),
 		Provider:      providerName,
 		AdapterID:     "proxy",

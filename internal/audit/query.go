@@ -25,15 +25,6 @@ type QueryResult struct {
 	Total  int
 }
 
-type CostSummaryRow struct {
-	Day          string  `json:"day"`
-	AgentID      string  `json:"agent_id"`
-	Model        string  `json:"model"`
-	InputTokens  int64   `json:"input_tokens"`
-	OutputTokens int64   `json:"output_tokens"`
-	CostUSD      float64 `json:"cost_usd"`
-}
-
 func QueryEvents(db *sql.DB, f QueryFilter) (*QueryResult, error) {
 	var conditions []string
 	var args []interface{}
@@ -83,7 +74,7 @@ func QueryEvents(db *sql.DB, f QueryFilter) (*QueryResult, error) {
 		"session_id, parent_session_id, working_dir, parser_version, outcome, " +
 		"commandments_evaluated, commandments_triggered, " +
 		"provider, model, tool_category, tool_effect, tool_name, taxonomy_version, classification_source, " +
-		"input_tokens, output_tokens, cost_usd, " +
+		"input_tokens, output_tokens, " +
 		"adapter_id, adapter_type, raw_payload_ref, prev_hash, event_hash, redacted, " +
 		"hostname, user_id " +
 		"FROM events " + where + " ORDER BY timestamp ASC"
@@ -111,7 +102,6 @@ func QueryEvents(db *sql.DB, f QueryFilter) (*QueryResult, error) {
 		var provider, model sql.NullString
 		var toolCategory, toolEffect, toolName, taxonomyVersion, classificationSource sql.NullString
 		var inputTokens, outputTokens sql.NullInt64
-		var costUSD sql.NullFloat64
 		var adapterID, adapterType, rawPayloadRef, prevHash sql.NullString
 		var hostname, userID sql.NullString
 		var redacted int
@@ -123,7 +113,7 @@ func QueryEvents(db *sql.DB, f QueryFilter) (*QueryResult, error) {
 			&e.Outcome,
 			&cmdEval, &cmdTrig,
 			&provider, &model, &toolCategory, &toolEffect, &toolName, &taxonomyVersion, &classificationSource,
-			&inputTokens, &outputTokens, &costUSD,
+			&inputTokens, &outputTokens,
 			&adapterID, &adapterType, &rawPayloadRef, &prevHash, &e.EventHash, &redacted,
 			&hostname, &userID,
 		)
@@ -150,7 +140,6 @@ func QueryEvents(db *sql.DB, f QueryFilter) (*QueryResult, error) {
 		e.ClassificationSource = classificationSource.String
 		e.InputTokens = inputTokens.Int64
 		e.OutputTokens = outputTokens.Int64
-		e.CostUSD = costUSD.Float64
 		e.AdapterID = adapterID.String
 		e.AdapterType = adapterType.String
 		e.RawPayloadRef = rawPayloadRef.String
@@ -167,51 +156,6 @@ func QueryEvents(db *sql.DB, f QueryFilter) (*QueryResult, error) {
 
 func ExportJSON(events []*AuditEvent) ([]byte, error) {
 	return json.MarshalIndent(events, "", "  ")
-}
-
-func QueryCostSummary(db *sql.DB, f QueryFilter) ([]CostSummaryRow, error) {
-	var conditions []string
-	var args []interface{}
-
-	if f.Since != nil {
-		conditions = append(conditions, "timestamp >= ?")
-		args = append(args, f.Since.UTC().Format(time.RFC3339Nano))
-	}
-	if f.Until != nil {
-		conditions = append(conditions, "timestamp <= ?")
-		args = append(args, f.Until.UTC().Format(time.RFC3339Nano))
-	}
-	if f.Agent != "" {
-		conditions = append(conditions, "agent_id = ?")
-		args = append(args, f.Agent)
-	}
-
-	conditions = append(conditions, "cost_usd IS NOT NULL")
-	where := "WHERE " + strings.Join(conditions, " AND ")
-
-	query := `SELECT substr(timestamp, 1, 10) AS day, agent_id, COALESCE(model, '') AS model,
-		COALESCE(SUM(input_tokens), 0) AS input_tokens,
-		COALESCE(SUM(output_tokens), 0) AS output_tokens,
-		COALESCE(SUM(cost_usd), 0) AS cost_usd
-		FROM events ` + where + `
-		GROUP BY day, agent_id, model
-		ORDER BY day ASC, agent_id ASC, model ASC`
-
-	rows, err := db.Query(query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("query cost summary: %w", err)
-	}
-	defer rows.Close()
-
-	out := []CostSummaryRow{}
-	for rows.Next() {
-		var r CostSummaryRow
-		if err := rows.Scan(&r.Day, &r.AgentID, &r.Model, &r.InputTokens, &r.OutputTokens, &r.CostUSD); err != nil {
-			return nil, fmt.Errorf("scan cost summary: %w", err)
-		}
-		out = append(out, r)
-	}
-	return out, nil
 }
 
 // VerifyIntegrity walks the event chain and returns the first broken link.

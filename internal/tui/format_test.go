@@ -50,29 +50,6 @@ func TestFormatDuration(t *testing.T) {
 	}
 }
 
-func TestFormatCost(t *testing.T) {
-	tests := []struct {
-		name string
-		in   float64
-		want string
-	}{
-		{"zero", 0, "$0"},
-		{"small", 0.023, "$0.023"},
-		{"medium", 1.45, "$1.45"},
-		{"whole", 5.0, "$5"},
-		{"trailing_zeros", 0.100, "$0.1"},
-		{"three_decimals", 0.001, "$0.001"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := FormatCost(tt.in)
-			if got != tt.want {
-				t.Fatalf("FormatCost(%v) = %q, want %q", tt.in, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestTruncate(t *testing.T) {
 	tests := []struct {
 		name string

@@ -83,10 +83,10 @@ func (s *Store) InsertEvents(events []*audit.AuditEvent) error {
 		session_id, parent_session_id, working_dir, parser_version, outcome,
 		commandments_evaluated, commandments_triggered,
 		provider, model, tool_category, tool_effect, tool_name, taxonomy_version, classification_source,
-		input_tokens, output_tokens, cost_usd,
+		input_tokens, output_tokens,
 		adapter_id, adapter_type, raw_payload_ref, prev_hash, event_hash, redacted,
 		hostname, user_id
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare: %w", err)
 	}
@@ -106,7 +106,7 @@ func (s *Store) InsertEvents(events []*audit.AuditEvent) error {
 			e.SessionID, e.ParentSessionID, e.WorkingDir, e.ParserVersion, string(e.Outcome),
 			e.CommandmentsEvaluated, e.CommandmentsTriggered,
 			e.Provider, e.Model, e.ToolCategory, e.ToolEffect, e.ToolName, e.TaxonomyVersion, e.ClassificationSource,
-			e.InputTokens, e.OutputTokens, e.CostUSD,
+			e.InputTokens, e.OutputTokens,
 			e.AdapterID, e.AdapterType, e.RawPayloadRef, e.PrevHash, e.EventHash, redacted,
 			e.Hostname, e.UserID,
 		)

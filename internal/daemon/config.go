@@ -33,7 +33,6 @@ type Config struct {
 	Audit        AuditConfig        `yaml:"audit"`
 	Commandments CommandmentsConfig `yaml:"commandments"`
 	ToolRegistry ToolRegistryConfig `yaml:"tool_registry"`
-	Cost         CostConfig         `yaml:"cost"`
 	Service      ServiceConfig      `yaml:"service"`
 	OTel         OTelConfig         `yaml:"otel"`
 }
@@ -127,15 +126,6 @@ type ToolRegistryConfig struct {
 	File string `yaml:"file"`
 }
 
-type CostConfig struct {
-	Pricing map[string]ModelPricing `yaml:"pricing"`
-}
-
-type ModelPricing struct {
-	Input  float64 `yaml:"input"`
-	Output float64 `yaml:"output"`
-}
-
 type ServiceConfig struct {
 	Agents map[string]service.AgentServiceEntry `yaml:"agents"`
 }
@@ -220,10 +210,6 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.Audit.HashAlgorithm = "sha256"
 		cfg.Commandments.File = "~/.config/crabwise/commandments.yaml"
 		cfg.ToolRegistry.File = "~/.config/crabwise/tool_registry.yaml"
-		cfg.Cost.Pricing = map[string]ModelPricing{
-			"gpt-4o":      {Input: 2.50, Output: 10.00},
-			"gpt-4o-mini": {Input: 0.15, Output: 0.60},
-		}
 	}
 
 	// Override with user config if present
@@ -370,11 +356,6 @@ func (c *Config) validate() error {
 		}
 		if c.Adapters.OpenClaw.CorrelationWindow.Duration() <= 0 {
 			return fmt.Errorf("adapters.openclaw.correlation_window must be > 0 when openclaw enabled")
-		}
-	}
-	for model, price := range c.Cost.Pricing {
-		if price.Input < 0 || price.Output < 0 {
-			return fmt.Errorf("cost.pricing.%s values must be non-negative", model)
 		}
 	}
 	return nil

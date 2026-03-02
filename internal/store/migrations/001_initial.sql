@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS events (
     classification_source TEXT,
     input_tokens    INTEGER,
     output_tokens   INTEGER,
-    cost_usd        REAL,
     adapter_id      TEXT,
     adapter_type    TEXT,
     raw_payload_ref TEXT,

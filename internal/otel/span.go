@@ -18,7 +18,6 @@ type GenAISpanData struct {
 	FinishReason  string
 	InputTokens   int64
 	OutputTokens  int64
-	CostUSD       float64
 	Outcome       string // success|failure|blocked|warned
 	Provider      string
 	AdapterID     string
@@ -58,9 +57,5 @@ func EmitGenAISpan(ctx context.Context, data GenAISpanData) {
 	if data.OutputTokens > 0 {
 		attrs = append(attrs, attribute.Int64(AttrGenAIUsageOutputTokens, data.OutputTokens))
 	}
-	if data.CostUSD > 0 {
-		attrs = append(attrs, attribute.Float64(AttrCrabwiseCostUSD, data.CostUSD))
-	}
-
 	span.SetAttributes(attrs...)
 }

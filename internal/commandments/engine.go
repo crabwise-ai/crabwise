@@ -241,8 +241,6 @@ func eventFieldValue(evt *audit.AuditEvent, field string) (string, bool) {
 		return strconv.FormatInt(evt.InputTokens, 10), true
 	case "output_tokens":
 		return strconv.FormatInt(evt.OutputTokens, 10), true
-	case "cost_usd":
-		return strconv.FormatFloat(evt.CostUSD, 'f', -1, 64), true
 	case "agent_pid":
 		return strconv.Itoa(evt.AgentPID), true
 	default:

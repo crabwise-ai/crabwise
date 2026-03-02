@@ -415,30 +415,6 @@ func (d *Daemon) registerIPC() {
 		return result.Events, nil
 	})
 
-	d.ipcServer.Handle("audit.cost", func(params json.RawMessage) (interface{}, error) {
-		var filter audit.QueryFilter
-		if len(params) > 0 {
-			var f struct {
-				Since string `json:"since"`
-				Until string `json:"until"`
-				Agent string `json:"agent"`
-			}
-			if err := json.Unmarshal(params, &f); err != nil {
-				return nil, fmt.Errorf("parse params: %w", err)
-			}
-			if f.Since != "" {
-				t, _ := time.Parse(time.RFC3339, f.Since)
-				filter.Since = &t
-			}
-			if f.Until != "" {
-				t, _ := time.Parse(time.RFC3339, f.Until)
-				filter.Until = &t
-			}
-			filter.Agent = f.Agent
-		}
-		return audit.QueryCostSummary(d.store.DB(), filter)
-	})
-
 	d.ipcServer.HandleSubscribe(func(params json.RawMessage, send func(string, interface{}) error, done <-chan struct{}) error {
 		ch := d.logger.Subscribe()
 		defer d.logger.Unsubscribe(ch)
@@ -637,14 +613,6 @@ func (d *Daemon) proxyConfig() proxy.Config {
 		}
 	}
 
-	pricing := make(map[string]proxy.Pricing, len(d.cfg.Cost.Pricing))
-	for model, p := range d.cfg.Cost.Pricing {
-		pricing[model] = proxy.Pricing{
-			InputPerMillion:  p.Input,
-			OutputPerMillion: p.Output,
-		}
-	}
-
 	return proxy.Config{
 		Listen:              d.cfg.Adapters.Proxy.Listen,
 		DefaultProvider:     d.cfg.Adapters.Proxy.DefaultProvider,
@@ -658,7 +626,6 @@ func (d *Daemon) proxyConfig() proxy.Config {
 		MappingsDir:         d.cfg.Adapters.Proxy.MappingsDir,
 		MappingStrictMode:   d.cfg.Adapters.Proxy.MappingStrictMode,
 		Providers:           providers,
-		Pricing:             pricing,
 	}
 }
 

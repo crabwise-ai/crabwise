@@ -162,18 +162,6 @@ func TestEvaluate_NumericZeroValueFieldsMatch(t *testing.T) {
 			},
 		},
 		{
-			Name:        "zero-cost",
-			Enforcement: "warn",
-			Enabled:     boolPtr(true),
-			Match: map[string]MatchCondition{
-				"cost_usd": {
-					Type:  MatcherTypeNumeric,
-					Op:    "eq",
-					Value: 0,
-				},
-			},
-		},
-		{
 			Name:        "zero-agent-pid",
 			Enforcement: "warn",
 			Enabled:     boolPtr(true),
@@ -196,12 +184,11 @@ func TestEvaluate_NumericZeroValueFieldsMatch(t *testing.T) {
 	result := engine.Evaluate(&audit.AuditEvent{
 		InputTokens:  0,
 		OutputTokens: 0,
-		CostUSD:      0,
 		AgentPID:     0,
 	})
 
-	if len(result.Triggered) != 4 {
-		t.Fatalf("expected 4 triggered zero-value numeric rules, got %+v", result.Triggered)
+	if len(result.Triggered) != 3 {
+		t.Fatalf("expected 3 triggered zero-value numeric rules, got %+v", result.Triggered)
 	}
 }
 

@@ -10,11 +10,6 @@ import (
 	"github.com/crabwise-ai/crabwise/internal/openclawstate"
 )
 
-type Pricing struct {
-	InputPerMillion  float64
-	OutputPerMillion float64
-}
-
 type Config struct {
 	Listen              string
 	DefaultProvider     string
@@ -27,7 +22,6 @@ type Config struct {
 	MappingsDir         string
 	MappingStrictMode   bool
 	Providers           map[string]ProviderConfig
-	Pricing             map[string]Pricing
 	RedactPatterns      []string
 }
 

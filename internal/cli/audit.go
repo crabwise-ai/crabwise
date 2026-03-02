@@ -24,7 +24,6 @@ func newAuditCmd() *cobra.Command {
 		limit      int
 		export     string
 		verify     bool
-		cost       bool
 	)
 
 	cmd := &cobra.Command{
@@ -59,11 +58,7 @@ func newAuditCmd() *cobra.Command {
 
 			// Interactive TUI when not in plain mode and no machine-output flags.
 			if !isPlain() {
-				initialMode := "events"
-				if cost {
-					initialMode = "cost"
-				}
-				return runAuditTUI(cfg.Daemon.SocketPath, params, initialMode)
+				return runAuditTUI(cfg.Daemon.SocketPath, params)
 			}
 
 			// Plain text output.
@@ -72,10 +67,6 @@ func newAuditCmd() *cobra.Command {
 				return fmt.Errorf("connect to daemon: %w", err)
 			}
 			defer client.Close()
-
-			if cost {
-				return showCostSummary(client, params)
-			}
 
 			return runAuditPlain(client, params)
 		},
@@ -92,7 +83,6 @@ func newAuditCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 50, "max events to return")
 	cmd.Flags().StringVar(&export, "export", "", "export format (json)")
 	cmd.Flags().BoolVar(&verify, "verify-integrity", false, "verify hash chain integrity")
-	cmd.Flags().BoolVar(&cost, "cost", false, "show cost summary grouped by day/agent/model")
 
 	return cmd
 }
@@ -207,39 +197,3 @@ func exportJSON(client *ipc.Client, params map[string]interface{}) error {
 	return nil
 }
 
-func showCostSummary(client *ipc.Client, params map[string]interface{}) error {
-	allowed := map[string]interface{}{}
-	if v, ok := params["since"]; ok {
-		allowed["since"] = v
-	}
-	if v, ok := params["until"]; ok {
-		allowed["until"] = v
-	}
-	if v, ok := params["agent"]; ok {
-		allowed["agent"] = v
-	}
-
-	result, err := client.Call("audit.cost", allowed)
-	if err != nil {
-		return fmt.Errorf("audit.cost: %w", err)
-	}
-
-	var rows []audit.CostSummaryRow
-	if err := json.Unmarshal(result, &rows); err != nil {
-		return fmt.Errorf("parse cost summary: %w", err)
-	}
-
-	if len(rows) == 0 {
-		fmt.Println("No cost data found.")
-		return nil
-	}
-
-	var total float64
-	for _, row := range rows {
-		fmt.Printf("%s  %-12s  %-24s  in:%7d out:%7d  $%.6f\n",
-			row.Day, row.AgentID, row.Model, row.InputTokens, row.OutputTokens, row.CostUSD)
-		total += row.CostUSD
-	}
-	fmt.Printf("\nTotal cost: $%.6f\n", total)
-	return nil
-}

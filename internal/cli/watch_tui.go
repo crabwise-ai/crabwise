@@ -474,10 +474,6 @@ func (m *watchModel) recordAuditEvent(evt audit.AuditEvent) {
 		line += " " + argStyle.Render(args)
 	}
 
-	if evt.ActionType == audit.ActionAIRequest && evt.CostUSD > 0 {
-		line += " " + argStyle.Render("("+tui.FormatCost(evt.CostUSD)+")")
-	}
-
 	switch evt.Outcome {
 	case audit.OutcomeWarned:
 		prefix = tui.StatusIcon("warned") + " "
@@ -515,9 +511,6 @@ func warnLineDetail(args string, evt audit.AuditEvent) string {
 	if args != "" {
 		detail += " " + warnLine.Render(args)
 	}
-	if evt.ActionType == audit.ActionAIRequest && evt.CostUSD > 0 {
-		detail += " " + warnLine.Render("("+tui.FormatCost(evt.CostUSD)+")")
-	}
 	return detail
 }
 
@@ -525,9 +518,6 @@ func blockLineDetail(args string, evt audit.AuditEvent) string {
 	detail := ""
 	if args != "" {
 		detail += " " + blockLine.Render(args)
-	}
-	if evt.ActionType == audit.ActionAIRequest && evt.CostUSD > 0 {
-		detail += " " + blockLine.Render("("+tui.FormatCost(evt.CostUSD)+")")
 	}
 	return detail
 }

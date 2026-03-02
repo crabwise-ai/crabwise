@@ -241,9 +241,6 @@ func startDaemonProxyE2ERuntime(t *testing.T, upstreamURL, commandmentsYAML stri
 			HashAlgorithm: "sha256",
 		},
 		Commandments: CommandmentsConfig{File: commandmentsPath},
-		Cost: CostConfig{Pricing: map[string]ModelPricing{
-			"gpt-4o": {Input: 2.5, Output: 10.0},
-		}},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

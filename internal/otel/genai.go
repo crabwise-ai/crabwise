@@ -18,7 +18,6 @@ const (
 
 	// Crabwise-specific extensions
 	AttrCrabwiseOutcome   = "crabwise.outcome"
-	AttrCrabwiseCostUSD   = "crabwise.cost_usd"
 	AttrCrabwiseProvider  = "crabwise.provider"
 	AttrCrabwiseAdapterID = "crabwise.adapter_id"
 )

@@ -38,17 +38,6 @@ func FormatDuration(d time.Duration) string {
 	}
 }
 
-// FormatCost renders a USD cost, trimming unnecessary trailing zeros.
-func FormatCost(usd float64) string {
-	if usd == 0 {
-		return "$0"
-	}
-	s := fmt.Sprintf("%.3f", usd)
-	s = strings.TrimRight(s, "0")
-	s = strings.TrimRight(s, ".")
-	return "$" + s
-}
-
 // Truncate truncates s to max characters, appending "..." if truncated.
 func Truncate(s string, max int) string {
 	if max <= 3 {

@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
-	"math"
 	"time"
 )
 
@@ -54,7 +53,6 @@ type AuditEvent struct {
 	ClassificationSource  string     `json:"classification_source,omitempty"`
 	InputTokens           int64      `json:"input_tokens,omitempty"`
 	OutputTokens          int64      `json:"output_tokens,omitempty"`
-	CostUSD               float64    `json:"cost_usd,omitempty"`
 	AdapterID             string     `json:"adapter_id,omitempty"`
 	AdapterType           string     `json:"adapter_type,omitempty"`
 	RawPayloadRef         string     `json:"raw_payload_ref,omitempty"`
@@ -98,7 +96,6 @@ func CanonicalBytes(e *AuditEvent) []byte {
 	buf = appendString(buf, e.ClassificationSource)
 	buf = appendInt(buf, e.InputTokens)
 	buf = appendInt(buf, e.OutputTokens)
-	buf = appendFloat(buf, e.CostUSD)
 	buf = appendString(buf, e.AdapterID)
 	buf = appendString(buf, e.AdapterType)
 	buf = appendString(buf, e.RawPayloadRef)
@@ -130,12 +127,6 @@ func appendString(buf []byte, s string) []byte {
 func appendInt(buf []byte, v int64) []byte {
 	b := make([]byte, 8)
 	binary.BigEndian.PutUint64(b, uint64(v))
-	return append(buf, b...)
-}
-
-func appendFloat(buf []byte, v float64) []byte {
-	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, math.Float64bits(v))
 	return append(buf, b...)
 }
 

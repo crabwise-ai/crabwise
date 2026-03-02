@@ -25,7 +25,6 @@ func TestEmitGenAISpan_Attributes(t *testing.T) {
 		FinishReason:  "stop",
 		InputTokens:   42,
 		OutputTokens:  17,
-		CostUSD:       0.000275,
 		Outcome:       "success",
 		Provider:      "openai",
 		AdapterID:     "proxy",
@@ -83,12 +82,6 @@ func TestEmitGenAISpan_Attributes(t *testing.T) {
 	assertStr(AttrCrabwiseAdapterID, "proxy")
 	assertInt(AttrGenAIUsageInputTokens, 42)
 	assertInt(AttrGenAIUsageOutputTokens, 17)
-
-	if cost, ok := attrs[AttrCrabwiseCostUSD]; !ok {
-		t.Errorf("missing %s attribute", AttrCrabwiseCostUSD)
-	} else if cost.(float64) < 0.000274 || cost.(float64) > 0.000276 {
-		t.Errorf("unexpected cost: %v", cost)
-	}
 }
 
 func TestEmitGenAISpan_OptionalFieldsOmitted(t *testing.T) {
@@ -115,7 +108,7 @@ func TestEmitGenAISpan_OptionalFieldsOmitted(t *testing.T) {
 		key := string(a.Key)
 		switch key {
 		case AttrGenAIResponseModel, AttrGenAIResponseID, AttrGenAIResponseFinish,
-			AttrGenAIUsageInputTokens, AttrGenAIUsageOutputTokens, AttrCrabwiseCostUSD:
+			AttrGenAIUsageInputTokens, AttrGenAIUsageOutputTokens:
 			t.Errorf("optional attribute %s should not be present when zero-valued", key)
 		}
 	}

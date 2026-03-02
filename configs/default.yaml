@@ -70,11 +70,6 @@ commandments:
 tool_registry:
   file: ~/.config/crabwise/tool_registry.yaml
 
-cost:
-  pricing:
-    gpt-4o:      { input: 2.50, output: 10.00 }
-    gpt-4o-mini: { input: 0.15, output: 0.60 }
-
 service:
   agents:
     openclaw:

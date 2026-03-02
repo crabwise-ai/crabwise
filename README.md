@@ -230,7 +230,7 @@ otel:
   export_interval: 5s
 ```
 
-Spans follow the [GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/) with attributes like `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, and Crabwise extensions (`crabwise.outcome`, `crabwise.cost_usd`).
+Spans follow the [GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/) with attributes like `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, and Crabwise extensions (`crabwise.outcome`).
 
 ### Install Script
 
