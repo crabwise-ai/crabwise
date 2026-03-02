@@ -254,4 +254,4 @@ To reset or remove Crabwise data and config (e.g. for a clean reinstall):
 
 ## License
 
-See [LICENSE](LICENSE).
+AGPL-3.0. See [LICENSE](LICENSE).
