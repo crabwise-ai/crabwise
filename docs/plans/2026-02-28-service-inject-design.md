@@ -51,8 +51,8 @@ Both paths converge at the same forward proxy, commandment engine, and audit tra
 
 - Support `crabwise service inject|remove|status` for both `system` and `user` scopes
 - Keep one simple mental model across platforms:
-  - `system` scope is privileged
-  - `user` scope is unprivileged
+  - `system` scope is privileged (requires root)
+  - `user` scope is unprivileged (rejects root unconditionally — uid 0 must never target a user service domain)
 - Inject the same proxy environment variables that `crabwise wrap` uses
 - Make status truthful by checking for actual injected proxy env, not just file existence
 - Avoid implicit fallback between scopes
@@ -141,14 +141,14 @@ Both paths converge at the same forward proxy, commandment engine, and audit tra
 │  │  ┌───────────────────────────────────────────────────────────────────┐   │ │
 │  │  │  /Library/LaunchDaemons/com.openclaw.gateway.plist               │   │ │
 │  │  │  EnvironmentVariables patched via PlistBuddy                     │   │ │
-│  │  │  restart: launchctl kickstart -k system/<label>                  │   │ │
+│  │  │  restart: launchctl bootout + bootstrap (re-reads plist)         │   │ │
 │  │  └───────────────────────────────────────────────────────────────────┘   │ │
 │  │                                                                         │ │
 │  │  macOS user scope (no root)                                             │ │
 │  │  ┌───────────────────────────────────────────────────────────────────┐   │ │
 │  │  │  ~/Library/LaunchAgents/com.my-agent.plist                       │   │ │
 │  │  │  EnvironmentVariables patched via PlistBuddy                     │   │ │
-│  │  │  restart: launchctl kickstart -k gui/<uid>/<label>               │   │ │
+│  │  │  restart: launchctl bootout + bootstrap (re-reads plist)         │   │ │
 │  │  └───────────────────────────────────────────────────────────────────┘   │ │
 │  │                                                                         │ │
 │  │  Excluded in phase 1: /Library/LaunchAgents (admin-shared agents)       │ │
@@ -182,15 +182,15 @@ Lifecycle:
 
 Privilege model:
   system scope: requires root (sudo)
-  user scope:   no root; sudo --scope user is rejected
+  user scope:   rejects root unconditionally (uid 0 via sudo or direct login)
 ```
 
 Scope and privilege model:
 
 - Linux `system`: root, `/etc/systemd/system`, `systemctl`
 - Linux `user`: no sudo, `~/.config/systemd/user`, `systemctl --user`
-- macOS `system`: root, `/Library/LaunchDaemons`, `launchctl kickstart system/<label>`
-- macOS `user`: no sudo, `~/Library/LaunchAgents`, `launchctl kickstart gui/<uid>/<label>`
+- macOS `system`: root, `/Library/LaunchDaemons`, `launchctl bootout system/<label>` + `launchctl bootstrap system <plist>`
+- macOS `user`: no sudo, `~/Library/LaunchAgents`, `launchctl bootout gui/<uid>/<label>` + `launchctl bootstrap gui/<uid> <plist>`
 
 ## CLI Model
 
@@ -231,7 +231,7 @@ New agents are added by appending entries to the config. Crabwise ships with `op
 - `--restart` triggers a service restart after inject or remove
 - no fallback between scopes
 - `system` without privileges prints the exact elevated command to run
-- `sudo ... --scope user` is rejected instead of trying to operate in root's user domain
+- `--scope user` rejects root (uid 0) unconditionally — whether via sudo or direct root login — to prevent targeting root's user domain
 
 ## Platform Semantics
 
@@ -255,13 +255,13 @@ New agents are added by appending entries to the config. Crabwise ships with `op
 
 - resolve plists in `/Library/LaunchDaemons`
 - patch plist `EnvironmentVariables`
-- restart with `launchctl kickstart -k system/<label>`
+- restart with `launchctl bootout system/<label>` + `launchctl bootstrap system <plist>` (must re-read plist from disk; `kickstart -k` only restarts with cached config)
 
 `user` scope:
 
 - resolve plists in `~/Library/LaunchAgents`
 - patch plist `EnvironmentVariables`
-- restart with `launchctl kickstart -k gui/<uid>/<label>`
+- restart with `launchctl bootout gui/<uid>/<label>` + `launchctl bootstrap gui/<uid> <plist>`
 
 Phase 1 intentionally excludes `/Library/LaunchAgents` because it mixes admin-managed files with user-domain execution and complicates privilege handling without a clear product need.
 
@@ -302,7 +302,7 @@ type Manager interface {
     Resolve(name string, scope Scope) (Resolution, error)
     Inject(res Resolution, cfg EnvConfig) (InjectResult, error)
     Remove(res Resolution, cfg EnvConfig) (RemoveResult, error)
-    CheckInjected(res Resolution) bool
+    CheckInjected(res Resolution) (bool, error)
     Restart(res Resolution) error
 }
 
@@ -363,17 +363,20 @@ crabwise service remove --scope user --agent my-agent --restart
 
 ## Status Semantics
 
-Status must distinguish:
+Status must distinguish three states:
 
-- resolution: was the target unit or plist found in the requested scope
-- injection: is Crabwise proxy env actually present
+- **resolved / not found**: was the target unit or plist found in the requested scope
+- **injected / not injected**: is Crabwise proxy env actually present
+- **unknown**: the check could not be performed (read errors, permissions, tool missing)
 
 Truthfulness rules:
 
-- systemd: `injected` means the Crabwise drop-in file exists, begins with the expected header comment (`# Generated by crabwise service inject`), and contains a non-empty `HTTPS_PROXY`
-- launchd: `injected` means the plist contains a non-empty `EnvironmentVariables:HTTPS_PROXY`
+- systemd: `injected` means the Crabwise drop-in file exists, begins with the expected header comment (`# Generated by crabwise service inject`), and contains a non-empty `HTTPS_PROXY`. If the file exists but cannot be read (permissions), status reports `unknown` with the error, not `not injected`.
+- launchd: `injected` means the plist contains a non-empty `EnvironmentVariables:HTTPS_PROXY`. If PlistBuddy fails for reasons other than "key not found", status reports `unknown` with the error.
 
-This avoids false positives from orphaned, empty, or corrupted override files.
+This avoids false positives from orphaned, empty, or corrupted override files, and avoids false negatives from read/tool errors being silently treated as "not injected".
+
+The `CheckInjected` method returns `(bool, error)` to support this three-state model.
 
 ## Failure Handling
 

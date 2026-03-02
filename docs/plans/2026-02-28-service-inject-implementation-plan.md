@@ -98,9 +98,10 @@ Scope rules this plan must preserve:
 
 - default scope is `system`
 - no fallback between scopes
-- `system` is privileged
-- `user` is unprivileged
+- `system` is privileged (requires root)
+- `user` is unprivileged (rejects root unconditionally — uid 0 must never target a user service domain, whether via sudo or direct root login)
 - injected status must mean `HTTPS_PROXY` is actually present
+- status must distinguish "not injected" from "unable to determine" (read errors are not false negatives)
 
 Lifecycle examples this implementation must support:
 
@@ -290,7 +291,7 @@ type Manager interface {
 	Resolve(name string, scope Scope) (Resolution, error)
 	Inject(res Resolution, cfg EnvConfig) (InjectResult, error)
 	Remove(res Resolution, cfg EnvConfig) (RemoveResult, error)
-	CheckInjected(res Resolution) bool
+	CheckInjected(res Resolution) (bool, error)
 	Restart(res Resolution) error
 }
 
@@ -377,22 +378,23 @@ git commit -m "feat: add service Manager interface and shared proxy env helpers"
 
 ---
 
-### Task 2: Refactor `crabwise wrap` to use shared proxy env
+### Task 2: Refactor `crabwise wrap` and `crabwise env` to use shared proxy env
 
 **Files:**
 - Modify: `internal/cli/wrap.go`
+- Modify: `internal/cli/env.go`
 
-**Step 1: Run existing wrap tests to confirm baseline**
+**Step 1: Run existing wrap and env tests to confirm baseline**
 
 ```bash
-go test ./internal/cli -run 'TestWrap|TestOverlayEnv|TestProxyEnv' -v
+go test ./internal/cli -run 'TestWrap|TestOverlayEnv|TestProxyEnv|TestEnv' -v
 ```
 
 Expected: PASS (baseline before refactor).
 
-**Step 2: Refactor wrap.go**
+**Step 2: Refactor wrap.go and env.go**
 
-Replace the private `envPair` type and `proxyEnvPairs` function with the shared `service.ProxyEnvVars` and `service.EnvVar`. Add a shared `envConfigFromDaemon` helper that both `wrap` and `service` CLI commands will use.
+Replace the private `envPair` type and `proxyEnvPairs` function with the shared `service.ProxyEnvVars` and `service.EnvVar`. Add a shared `envConfigFromDaemon` helper that both `wrap`, `env`, and `service` CLI commands will use.
 
 After refactor, `wrap.go` should look like:
 
@@ -412,7 +414,7 @@ import (
 )
 
 // envConfigFromDaemon constructs a service.EnvConfig from the daemon config.
-// Used by both wrap and service inject commands.
+// Used by wrap, env, and service inject commands.
 func envConfigFromDaemon(cfg *daemon.Config) service.EnvConfig {
 	return service.EnvConfig{
 		ProxyURL: "http://" + cfg.Adapters.Proxy.Listen,
@@ -477,17 +479,67 @@ func newWrapCmd() *cobra.Command {
 }
 ```
 
+After refactor, `env.go` should use the shared helpers:
+
+```go
+package cli
+
+import (
+	"fmt"
+
+	"github.com/crabwise-ai/crabwise/internal/daemon"
+	"github.com/crabwise-ai/crabwise/internal/service"
+	"github.com/spf13/cobra"
+)
+
+func newEnvCmd() *cobra.Command {
+	var (
+		configPath string
+		shell      string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "env",
+		Short: "Print proxy environment variables for shell evaluation",
+		Example: `  eval $(crabwise env)
+  eval $(crabwise env --shell bash)
+  crabwise env --shell fish | source`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := daemon.LoadConfig(configPath)
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+
+			for _, v := range service.ProxyEnvVars(envConfigFromDaemon(cfg)) {
+				switch shell {
+				case "fish":
+					fmt.Printf("set -gx %s %q\n", v.Key, v.Value)
+				default:
+					fmt.Printf("export %s=%q\n", v.Key, v.Value)
+				}
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&configPath, "config", "c", "", "config file path")
+	cmd.Flags().StringVar(&shell, "shell", "bash", "output format: bash, zsh, or fish")
+	return cmd
+}
+```
+
 Key changes:
 
 - Remove `envPair` type (replaced by `service.EnvVar`)
 - Remove `proxyEnvPairs` function (replaced by `service.ProxyEnvVars`)
 - Add `envConfigFromDaemon` helper (will be reused by service CLI in Task 6)
 - `overlayEnv` now takes `[]service.EnvVar` instead of `[]envPair`
+- `env.go` uses `service.ProxyEnvVars(envConfigFromDaemon(cfg))` — no divergent source of truth
 
 **Step 3: Run tests to verify refactor is clean**
 
 ```bash
-go test ./internal/cli -run 'TestWrap|TestOverlayEnv|TestProxyEnv' -v
+go test ./internal/cli -run 'TestWrap|TestOverlayEnv|TestProxyEnv|TestEnv' -v
 go build -o /dev/null ./cmd/crabwise
 ```
 
@@ -496,8 +548,8 @@ Expected: PASS, clean build.
 **Step 4: Commit**
 
 ```bash
-git add internal/cli/wrap.go
-git commit -m "refactor: wrap uses shared proxy env from internal/service"
+git add internal/cli/wrap.go internal/cli/env.go
+git commit -m "refactor: wrap and env use shared proxy env from internal/service"
 ```
 
 ---
@@ -525,6 +577,7 @@ Add tests for:
 - `TestSystemdManager_CheckInjected_EmptyFile`
 - `TestSystemdManager_CheckInjected_MissingHeader`
 - `TestSystemdManager_CheckInjected_NoFile`
+- `TestSystemdManager_CheckInjected_ReadError`
 - `TestSystemdManager_Restart_SystemScope`
 - `TestSystemdManager_Restart_UserScope`
 
@@ -658,28 +711,33 @@ func (m *SystemdManager) Remove(res Resolution, _ EnvConfig) (RemoveResult, erro
 
 // CheckInjected returns true only if the drop-in file exists, begins with
 // the expected header comment, and contains a non-empty HTTPS_PROXY assignment.
-func (m *SystemdManager) CheckInjected(res Resolution) bool {
+// Returns an error if the file exists but cannot be read (permissions, I/O).
+// Returns (false, nil) if the drop-in simply does not exist.
+func (m *SystemdManager) CheckInjected(res Resolution) (bool, error) {
 	sd := res.Systemd
 	if sd == nil {
-		return false
+		return false, fmt.Errorf("not a systemd resolution")
 	}
 
 	dropInPath := filepath.Join(sd.DropInRoot, sd.UnitName+".d", dropInFileName)
 	data, err := os.ReadFile(dropInPath)
 	if err != nil {
-		return false
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("read drop-in %s: %w", dropInPath, err)
 	}
 
 	content := string(data)
 	if !strings.HasPrefix(content, dropInHeader) {
-		return false
+		return false, nil
 	}
 	for _, line := range strings.Split(content, "\n") {
 		if strings.Contains(line, "HTTPS_PROXY=") && !strings.HasSuffix(strings.TrimSpace(line), `HTTPS_PROXY=""`) {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 func (m *SystemdManager) Restart(res Resolution) error {
@@ -737,17 +795,23 @@ Add tests for:
 - `TestLaunchdManager_Resolve_UserScope`
 - `TestLaunchdManager_Resolve_NotFound`
 - `TestLaunchdManager_Resolve_NoFallbackAcrossScopes`
-- `TestLaunchdManager_Inject_GeneratesCorrectCommands`
-- `TestLaunchdManager_Remove_GeneratesCorrectCommands`
+- `TestLaunchdManager_Inject_CallsPlistBuddyDirectly`
+- `TestLaunchdManager_Inject_NoShellInterpolation`
+- `TestLaunchdManager_Inject_RejectsSemicolonInValue`
+- `TestLaunchdManager_Remove_CallsPlistBuddyDirectly`
+- `TestLaunchdManager_Remove_NotInjected`
 - `TestLaunchdManager_CheckInjected_Present`
 - `TestLaunchdManager_CheckInjected_Absent`
-- `TestLaunchdManager_Restart_SystemScope`
-- `TestLaunchdManager_Restart_UserScope`
+- `TestLaunchdManager_CheckInjected_Error`
+- `TestLaunchdManager_Restart_SystemScope_UsesBootoutBootstrap`
+- `TestLaunchdManager_Restart_UserScope_UsesBootoutBootstrap`
 - `TestLaunchdManager_Restart_NoDomainTarget`
 - `TestLaunchdDomain_SystemScope`
 - `TestLaunchdDomain_UserScope`
+- `TestLaunchdDomainPrefix_SystemScope`
+- `TestLaunchdDomainPrefix_UserScope`
 
-All tests override `RunCmd`, `GetOutput`, and `GetUID` on the manager struct. Resolve tests use temp directories with fake plist files and override `GetOutput` to stub PlistBuddy label reads.
+All tests override `RunCmd`, `GetOutput`, and `GetUID` on the manager struct. Resolve tests use temp directories with fake plist files and override `GetOutput` to stub PlistBuddy label reads. Inject/Remove tests capture the exact argv passed to `RunCmd` and verify no shell invocations (`sh -c`) are used. Restart tests verify the bootout+bootstrap sequence rather than kickstart.
 
 **Step 2: Run test to verify it fails**
 
@@ -765,8 +829,10 @@ Create `internal/service/launchd.go`:
 package service
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -822,33 +888,74 @@ func (m *LaunchdManager) Resolve(name string, scope Scope) (Resolution, error) {
 		name, scope, strings.Join(dirs, ", "))
 }
 
+// validatePlistBuddyValue rejects values containing characters that
+// PlistBuddy interprets as command separators within -c arguments.
+func validatePlistBuddyValue(value string) error {
+	if strings.Contains(value, ";") {
+		return fmt.Errorf("value %q contains semicolon, which PlistBuddy uses as a command separator", value)
+	}
+	return nil
+}
+
+// Inject patches the plist EnvironmentVariables using direct PlistBuddy
+// argv execution. No shell interpolation — safe for paths with spaces.
+// Values are validated to reject PlistBuddy command separator characters.
 func (m *LaunchdManager) Inject(res Resolution, cfg EnvConfig) (InjectResult, error) {
 	ld := res.Launchd
 	if ld == nil {
 		return InjectResult{}, fmt.Errorf("not a launchd resolution")
 	}
 
-	cmds := generateLaunchdPlistCommands(ld.PlistPath, cfg)
-	for _, c := range cmds {
-		if err := m.RunCmd("sh", "-c", c); err != nil {
-			return InjectResult{Path: ld.PlistPath}, fmt.Errorf("plist patch: %w", err)
+	envVars := ProxyEnvVars(cfg)
+	for _, env := range envVars {
+		if err := validatePlistBuddyValue(env.Value); err != nil {
+			return InjectResult{Path: ld.PlistPath}, fmt.Errorf("unsafe value for %s: %w", env.Key, err)
+		}
+	}
+
+	// Ensure EnvironmentVariables dict exists (ignore error if already present).
+	_ = m.RunCmd("/usr/libexec/PlistBuddy", "-c", "Add :EnvironmentVariables dict", ld.PlistPath)
+
+	for _, env := range envVars {
+		// Try Set first (updates existing key), fall back to Add (creates new key).
+		// PlistBuddy's Set takes everything after the key path as the value,
+		// so spaces in values (e.g., CA cert paths) are handled correctly.
+		setCmd := fmt.Sprintf("Set :EnvironmentVariables:%s %s", env.Key, env.Value)
+		if err := m.RunCmd("/usr/libexec/PlistBuddy", "-c", setCmd, ld.PlistPath); err != nil {
+			addCmd := fmt.Sprintf("Add :EnvironmentVariables:%s string %s", env.Key, env.Value)
+			if err := m.RunCmd("/usr/libexec/PlistBuddy", "-c", addCmd, ld.PlistPath); err != nil {
+				return InjectResult{Path: ld.PlistPath}, fmt.Errorf("plist patch %s: %w", env.Key, err)
+			}
 		}
 	}
 
 	return InjectResult{Path: ld.PlistPath, Written: true}, nil
 }
 
+// Remove deletes proxy env vars from the plist EnvironmentVariables
+// using direct PlistBuddy argv execution.
+// Returns Removed: false if proxy env was not injected to begin with,
+// consistent with the systemd path.
 func (m *LaunchdManager) Remove(res Resolution, cfg EnvConfig) (RemoveResult, error) {
 	ld := res.Launchd
 	if ld == nil {
 		return RemoveResult{}, fmt.Errorf("not a launchd resolution")
 	}
 
-	cmds := generateLaunchdRemoveCommands(ld.PlistPath, cfg)
-	for _, c := range cmds {
-		if err := m.RunCmd("sh", "-c", c); err != nil {
-			return RemoveResult{Path: ld.PlistPath}, fmt.Errorf("plist remove: %w", err)
-		}
+	// Check if actually injected before removing.
+	injected, err := m.CheckInjected(res)
+	if err != nil {
+		return RemoveResult{Path: ld.PlistPath}, fmt.Errorf("check before remove: %w", err)
+	}
+	if !injected {
+		return RemoveResult{Path: ld.PlistPath, Removed: false}, nil
+	}
+
+	for _, env := range ProxyEnvVars(cfg) {
+		// Ignore errors — individual keys may not exist.
+		_ = m.RunCmd("/usr/libexec/PlistBuddy", "-c",
+			fmt.Sprintf("Delete :EnvironmentVariables:%s", env.Key),
+			ld.PlistPath)
 	}
 
 	return RemoveResult{Path: ld.PlistPath, Removed: true}, nil
@@ -856,21 +963,35 @@ func (m *LaunchdManager) Remove(res Resolution, cfg EnvConfig) (RemoveResult, er
 
 // CheckInjected returns true only if the plist contains a non-empty
 // HTTPS_PROXY in EnvironmentVariables.
-func (m *LaunchdManager) CheckInjected(res Resolution) bool {
+// Returns an error if the check cannot be performed (tool missing, I/O failure).
+// Returns (false, nil) if the key is absent or empty.
+func (m *LaunchdManager) CheckInjected(res Resolution) (bool, error) {
 	ld := res.Launchd
 	if ld == nil {
-		return false
+		return false, fmt.Errorf("not a launchd resolution")
 	}
 
 	out, err := m.GetOutput(
 		"/usr/libexec/PlistBuddy", "-c", "Print :EnvironmentVariables:HTTPS_PROXY", ld.PlistPath,
 	)
 	if err != nil {
-		return false
+		// PlistBuddy prints "Does Not Exist" to stderr when the key is absent
+		// and exits with code 1. Check ExitError.Stderr specifically — do not
+		// match on "exit status" broadly, because real failures (corrupt plist,
+		// permissions) also exit 1.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) &&
+			strings.Contains(string(exitErr.Stderr), "Does Not Exist") {
+			return false, nil
+		}
+		return false, fmt.Errorf("check plist %s: %w", ld.PlistPath, err)
 	}
-	return strings.TrimSpace(string(out)) != ""
+	return strings.TrimSpace(string(out)) != "", nil
 }
 
+// Restart performs a bootout+bootstrap cycle to force launchd to re-read
+// the plist from disk. kickstart -k only restarts the process with the
+// cached plist configuration and would silently ignore plist changes.
 func (m *LaunchdManager) Restart(res Resolution) error {
 	ld := res.Launchd
 	if ld == nil {
@@ -879,7 +1000,13 @@ func (m *LaunchdManager) Restart(res Resolution) error {
 	if ld.DomainTarget == "" {
 		return fmt.Errorf("no domain target resolved for launchd restart")
 	}
-	return m.RunCmd("launchctl", "kickstart", "-k", ld.DomainTarget)
+
+	// Bootout the service (ignore error — service may not be loaded).
+	_ = m.RunCmd("launchctl", "bootout", ld.DomainTarget)
+
+	// Bootstrap re-reads the plist from disk into the domain.
+	domainPrefix := launchdDomainPrefix(res.Scope, m.GetUID())
+	return m.RunCmd("launchctl", "bootstrap", domainPrefix, ld.PlistPath)
 }
 
 func (m *LaunchdManager) readLabel(plistPath string) (string, error) {
@@ -894,40 +1021,22 @@ func (m *LaunchdManager) readLabel(plistPath string) (string, error) {
 	return label, nil
 }
 
-func generateLaunchdPlistCommands(plistPath string, cfg EnvConfig) []string {
-	envVars := ProxyEnvVars(cfg)
-	cmds := []string{
-		fmt.Sprintf("/usr/libexec/PlistBuddy -c 'Add :EnvironmentVariables dict' %s 2>/dev/null || true", plistPath),
-	}
-	for _, env := range envVars {
-		cmds = append(cmds, fmt.Sprintf(
-			"/usr/libexec/PlistBuddy -c 'Set :EnvironmentVariables:%s %s' %s 2>/dev/null || "+
-				"/usr/libexec/PlistBuddy -c 'Add :EnvironmentVariables:%s string %s' %s",
-			env.Key, env.Value, plistPath,
-			env.Key, env.Value, plistPath,
-		))
-	}
-	return cmds
-}
-
-func generateLaunchdRemoveCommands(plistPath string, cfg EnvConfig) []string {
-	envVars := ProxyEnvVars(cfg)
-	var cmds []string
-	for _, env := range envVars {
-		cmds = append(cmds, fmt.Sprintf(
-			"/usr/libexec/PlistBuddy -c 'Delete :EnvironmentVariables:%s' %s 2>/dev/null || true",
-			env.Key, plistPath,
-		))
-	}
-	return cmds
-}
-
 // launchdDomain returns the launchctl domain target for the given scope.
+// Used by bootout (which takes the full target including label).
 func launchdDomain(scope Scope, uid int, label string) string {
 	if scope == ScopeSystem {
 		return "system/" + label
 	}
 	return fmt.Sprintf("gui/%d/%s", uid, label)
+}
+
+// launchdDomainPrefix returns the domain prefix without the label.
+// Used by bootstrap (which takes domain prefix + plist path separately).
+func launchdDomainPrefix(scope Scope, uid int) string {
+	if scope == ScopeSystem {
+		return "system"
+	}
+	return fmt.Sprintf("gui/%d", uid)
 }
 ```
 
@@ -965,6 +1074,7 @@ Add tests for:
 - `TestValidatePrivileges_SystemAllowsRoot`
 - `TestValidatePrivileges_UserAllowsNonRoot`
 - `TestValidatePrivileges_UserRejectsSudo`
+- `TestValidatePrivileges_UserRejectsDirectRoot`
 - `TestSuggestElevatedCommand`
 
 Suggested test shape:
@@ -988,8 +1098,15 @@ func TestDetectManagerForOS_Unknown(t *testing.T) {
 func TestValidatePrivileges_UserRejectsSudo(t *testing.T) {
 	err := ValidatePrivileges(ScopeUser, 0, "alice")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "not through sudo")
-	require.Contains(t, err.Error(), "alice")
+	require.Contains(t, err.Error(), "user scope requires a non-root user")
+}
+
+func TestValidatePrivileges_UserRejectsDirectRoot(t *testing.T) {
+	// Root without SUDO_USER must also be rejected — prevents
+	// targeting root's user domain, which is never the intended target.
+	err := ValidatePrivileges(ScopeUser, 0, "")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "user scope requires a non-root user")
 }
 ```
 
@@ -1037,9 +1154,8 @@ func detectManagerForOS(goos string) Manager {
 //
 // Rules:
 //   - system scope requires uid 0 (root)
-//   - user scope rejects uid 0 when SUDO_USER is set, because that
-//     means the user ran "sudo crabwise service --scope user ..." which
-//     would operate in root's user domain instead of their own
+//   - user scope rejects uid 0 unconditionally — root must never target
+//     a user service domain, whether via sudo or direct root login
 func ValidatePrivileges(scope Scope, uid int, sudoUser string) error {
 	switch scope {
 	case ScopeSystem:
@@ -1047,10 +1163,16 @@ func ValidatePrivileges(scope Scope, uid int, sudoUser string) error {
 			return fmt.Errorf("system scope requires root; run with sudo")
 		}
 	case ScopeUser:
-		if uid == 0 && sudoUser != "" {
+		if uid == 0 {
+			if sudoUser != "" {
+				return fmt.Errorf(
+					"user scope requires a non-root user; "+
+						"run without sudo as %q instead", sudoUser,
+				)
+			}
 			return fmt.Errorf(
-				"user scope must be run as the owning user, not through sudo; "+
-					"run without sudo as %q instead", sudoUser,
+				"user scope requires a non-root user; " +
+					"run as the owning user, not as root",
 			)
 		}
 	}
@@ -1101,6 +1223,7 @@ git commit -m "feat: add manager detection and privilege guards"
 - Create: `internal/cli/service.go`
 - Modify: `internal/cli/root.go`
 - Modify: `internal/daemon/config.go` (add `ServiceConfig` with agent registry)
+- Modify: `configs/default.yaml` (add `service.agents` block)
 - Test: `internal/cli/service_test.go`
 
 **Step 1: Add agent registry to daemon config**
@@ -1121,16 +1244,29 @@ cfg.Service.Agents = map[string]service.AgentServiceEntry{
 }
 ```
 
+Also update `configs/default.yaml` to include the new section so that `crabwise init` generates a config that documents the agent registry:
+
+```yaml
+service:
+  agents:
+    openclaw:
+      systemd_unit: openclaw-gateway
+      launchd_plist: com.openclaw.gateway
+```
+
+This must be appended to `configs/default.yaml` before the `otel:` section. Without this, new installations running `crabwise init` will generate a config that omits the feature entirely.
+
 **Step 2: Write the failing tests**
 
 Add tests for:
 
 - `TestServiceCommand_DefaultScopeIsSystem`
-- `TestServiceInjectCmd_DryRun_SystemScope`
-- `TestServiceInjectCmd_DryRun_UserScope`
+- `TestServiceInjectCmd_SystemScope`
+- `TestServiceInjectCmd_UserScope`
 - `TestServiceStatusCmd_NotFound`
 - `TestServiceStatusCmd_NotInjected`
-- `TestServiceRejectsSudoForUserScope`
+- `TestServiceStatusCmd_CheckError`
+- `TestServiceRejectsRootForUserScope`
 - `TestEnvConfigFromDaemonConfig`
 - `TestServiceAgentRegistryLookup`
 - `TestServiceAgentLiteralFallback`
@@ -1138,7 +1274,7 @@ Add tests for:
 **Step 2: Run test to verify it fails**
 
 ```bash
-go test ./internal/cli -run 'TestService(Command_|InjectCmd_|StatusCmd_|RejectsSudo)|TestEnvConfigFromDaemonConfig' -v
+go test ./internal/cli -run 'TestService(Command_|InjectCmd_|StatusCmd_|RejectsRoot)|TestEnvConfigFromDaemonConfig' -v
 ```
 
 Expected: FAIL because the command does not exist yet.
@@ -1377,19 +1513,31 @@ func newServiceStatusCmd() *cobra.Command {
 				return nil
 			}
 
-			injected := mgr.CheckInjected(res)
+			injected, checkErr := mgr.CheckInjected(res)
 
 			if isPlain() {
-				fmt.Printf("agent: %s\nscope: %s\nservice: %s\nresolved: true\ninjected: %t\n",
-					agentName, scope, serviceName, injected)
+				if checkErr != nil {
+					fmt.Printf("agent: %s\nscope: %s\nservice: %s\nresolved: true\ninjected: unknown\nerror: %s\n",
+						agentName, scope, serviceName, checkErr)
+				} else {
+					fmt.Printf("agent: %s\nscope: %s\nservice: %s\nresolved: true\ninjected: %t\n",
+						agentName, scope, serviceName, injected)
+				}
 			} else {
 				fmt.Printf("  %s %s %s\n",
 					tui.StatusIcon("success"),
 					tui.StyleBody.Render("Resolved"),
 					tui.StyleMuted.Render(agentName+" → "+serviceName+" in "+string(scope)+" scope"))
-				fmt.Printf("  %s %s\n",
-					tui.StatusIcon(boolToStatus(injected)),
-					tui.StyleBody.Render("Proxy "+map[bool]string{true: "injected", false: "not injected"}[injected]))
+				if checkErr != nil {
+					fmt.Printf("  %s %s %s\n",
+						tui.StatusIcon("warning"),
+						tui.StyleBody.Render("Status unknown"),
+						tui.StyleMuted.Render(checkErr.Error()))
+				} else {
+					fmt.Printf("  %s %s\n",
+						tui.StatusIcon(boolToStatus(injected)),
+						tui.StyleBody.Render("Proxy "+map[bool]string{true: "injected", false: "not injected"}[injected]))
+				}
 			}
 
 			return nil
@@ -1418,7 +1566,7 @@ Add `newServiceCmd()` to the root command tree in `internal/cli/root.go`.
 **Step 4: Run test to verify it passes**
 
 ```bash
-go test ./internal/cli -run 'TestService(Command_|InjectCmd_|StatusCmd_|RejectsSudo)|TestEnvConfigFromDaemonConfig' -v
+go test ./internal/cli -run 'TestService(Command_|InjectCmd_|StatusCmd_|RejectsRoot)|TestEnvConfigFromDaemonConfig' -v
 ```
 
 Expected: PASS
@@ -1438,7 +1586,7 @@ Expected: all commands compile and print help text without errors.
 **Step 6: Commit**
 
 ```bash
-git add internal/cli/service.go internal/cli/root.go internal/cli/service_test.go
+git add internal/cli/service.go internal/cli/root.go internal/cli/service_test.go internal/daemon/config.go configs/default.yaml
 git commit -m "feat: add scoped crabwise service commands"
 ```
 
