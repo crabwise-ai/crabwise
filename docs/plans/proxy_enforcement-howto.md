@@ -27,11 +27,27 @@ codex
 
 That's it. Under the hood, `crabwise wrap` sets `HTTPS_PROXY=http://127.0.0.1:9119` and `NODE_EXTRA_CA_CERTS=~/.local/share/crabwise/ca.crt`, then runs Codex. All of Codex's API calls to `api.openai.com` flow through crabwise. Non-AI traffic (git, npm, etc.) tunnels through transparently.
 
-**OpenClaw phase 1 uses the same proxy path:**
+**OpenClaw uses the same proxy path. Two modes depending on how you run it:**
 
 ```bash
+# Interactive / dev mode -- wrap sets env for this session only
 crabwise wrap -- openclaw gateway
+
+# Production daemon -- inject persists env in the service definition
+sudo crabwise service inject --agent openclaw --restart
+
+# User-scoped agents (no sudo)
+crabwise service inject --scope user --agent my-agent --restart
+
+# Check injection status
+crabwise service status --agent openclaw
+crabwise service status --scope user --agent my-agent
+
+# Remove later
+sudo crabwise service remove --agent openclaw --restart
 ```
+
+Note: `--scope user` rejects root/sudo — run as the owning user. `--scope system` (default) requires root.
 
 If you want OpenClaw session attribution in `crabwise watch`, `agents`, and `audit`, enable the read-only Gateway observer:
 
