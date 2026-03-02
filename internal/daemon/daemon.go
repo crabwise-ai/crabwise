@@ -360,6 +360,30 @@ func (d *Daemon) registerIPC() {
 			}
 		}
 
+		// Enrich test event with classifier when taxonomy fields are missing.
+		// Real events get classified by the adapter; test events skip that path.
+		if event.ToolCategory == "" {
+			toolName := event.ToolName
+			if toolName == "" {
+				toolName = event.Action
+			}
+			if toolName != "" && d.classifier != nil {
+				result := d.classifier.Classify(event.Provider, toolName, classify.ExtractArgKeys(json.RawMessage(event.Arguments)))
+				event.ToolCategory = result.Category
+				event.ToolEffect = result.Effect
+				if event.ActionType == "" {
+					switch result.Category {
+					case classify.CategoryShell, classify.CategoryCodeExec:
+						event.ActionType = audit.ActionCommandExecution
+					case classify.CategoryFileRead, classify.CategoryFileWrite, classify.CategoryFileEdit, classify.CategoryFileSearch:
+						event.ActionType = audit.ActionFileAccess
+					default:
+						event.ActionType = audit.ActionToolCall
+					}
+				}
+			}
+		}
+
 		return d.commandments.Test(&event), nil
 	})
 
