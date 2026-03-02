@@ -137,3 +137,25 @@ func TestAgentsSummary_Empty(t *testing.T) {
 		t.Fatalf("expected '0 active, 0 inactive', got %q", got)
 	}
 }
+
+func TestAgentsTUIModel_OpenClawSessionsHaveNoPID(t *testing.T) {
+	m := newAgentsTUIModel("/tmp/nonexistent.sock")
+
+	agents := []discovery.AgentInfo{
+		{ID: "openclaw/agent:main:discord:channel:123", Type: "openclaw", PID: 0, Status: "active"},
+	}
+
+	updated, _ := m.Update(agentsLoadedMsg{agents: agents})
+	next := updated.(agentsTUIModel)
+
+	rows := next.table.Rows()
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 table row, got %d", len(rows))
+	}
+	if rows[0][1] != "openclaw/agent:main:discord:channel:123" {
+		t.Fatalf("expected full openclaw id in row, got %q", rows[0][1])
+	}
+	if rows[0][3] != "—" {
+		t.Fatalf("expected PID dash for openclaw session, got %q", rows[0][3])
+	}
+}

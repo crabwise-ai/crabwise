@@ -8,37 +8,23 @@ import (
 	"syscall"
 
 	"github.com/crabwise-ai/crabwise/internal/daemon"
+	"github.com/crabwise-ai/crabwise/internal/service"
 	"github.com/spf13/cobra"
 )
 
-type envPair struct {
-	key, value string
+// envConfigFromDaemon constructs a service.EnvConfig from the daemon config.
+// Used by wrap, env, and service inject commands.
+func envConfigFromDaemon(cfg *daemon.Config) service.EnvConfig {
+	return service.EnvConfig{
+		ProxyURL: "http://" + cfg.Adapters.Proxy.Listen,
+		CACert:   cfg.Adapters.Proxy.CACert,
+	}
 }
 
-func proxyEnvPairs(cfg *daemon.Config) []envPair {
-	proxyURL := "http://" + cfg.Adapters.Proxy.Listen
-	pairs := []envPair{
-		{"HTTPS_PROXY", proxyURL},
-		{"HTTP_PROXY", proxyURL},
-		{"ALL_PROXY", proxyURL},
-		{"https_proxy", proxyURL},
-		{"http_proxy", proxyURL},
-		{"all_proxy", proxyURL},
-	}
-	if cfg.Adapters.Proxy.CACert != "" {
-		pairs = append(pairs, envPair{"NODE_EXTRA_CA_CERTS", cfg.Adapters.Proxy.CACert})
-	}
-	pairs = append(pairs,
-		envPair{"NO_PROXY", "localhost,127.0.0.1"},
-		envPair{"no_proxy", "localhost,127.0.0.1"},
-	)
-	return pairs
-}
-
-func overlayEnv(base []string, pairs []envPair) []string {
-	overrides := make(map[string]string, len(pairs))
-	for _, p := range pairs {
-		overrides[p.key] = p.value
+func overlayEnv(base []string, vars []service.EnvVar) []string {
+	overrides := make(map[string]string, len(vars))
+	for _, v := range vars {
+		overrides[v.Key] = v.Value
 	}
 
 	var result []string
@@ -52,9 +38,9 @@ func overlayEnv(base []string, pairs []envPair) []string {
 			result = append(result, entry)
 		}
 	}
-	for _, p := range pairs {
-		if !seen[p.key] {
-			result = append(result, p.key+"="+p.value)
+	for _, v := range vars {
+		if !seen[v.Key] {
+			result = append(result, v.Key+"="+v.Value)
 		}
 	}
 	return result
@@ -82,7 +68,7 @@ func newWrapCmd() *cobra.Command {
 				return fmt.Errorf("resolve command %q: %w", args[0], err)
 			}
 
-			env := overlayEnv(os.Environ(), proxyEnvPairs(cfg))
+			env := overlayEnv(os.Environ(), service.ProxyEnvVars(envConfigFromDaemon(cfg)))
 			return syscall.Exec(binary, args, env)
 		},
 	}

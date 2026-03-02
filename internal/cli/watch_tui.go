@@ -461,11 +461,12 @@ func (m *watchModel) recordAuditEvent(evt audit.AuditEvent) {
 
 	ts := tui.FormatTimestamp(when)
 	args := tui.Truncate(evt.Arguments, 50)
+	agentLabel := compactAgentLabel(evt.AgentID, evt.SessionID)
 
 	// Build styled line parts
 	prefix := "  "
 	line := tsStyle.Render(ts) + " " +
-		agentStyle.Render("["+evt.AgentID+"]") + " " +
+		agentStyle.Render("["+agentLabel+"]") + " " +
 		bodyStyle.Render(fmt.Sprintf("%-18s", string(evt.ActionType))) + " " +
 		bodyStyle.Render(fmt.Sprintf("%-10s", evt.Action))
 
@@ -480,11 +481,11 @@ func (m *watchModel) recordAuditEvent(evt audit.AuditEvent) {
 	switch evt.Outcome {
 	case audit.OutcomeWarned:
 		prefix = tui.StatusIcon("warned") + " "
-		line = warnLine.Render(ts+" ["+evt.AgentID+"] "+fmt.Sprintf("%-18s", string(evt.ActionType))+" "+fmt.Sprintf("%-10s", evt.Action)) +
+		line = warnLine.Render(ts+" ["+agentLabel+"] "+fmt.Sprintf("%-18s", string(evt.ActionType))+" "+fmt.Sprintf("%-10s", evt.Action)) +
 			warnLineDetail(args, evt)
 	case audit.OutcomeBlocked:
 		prefix = tui.StatusIcon("blocked") + " "
-		line = blockLine.Render(ts+" ["+evt.AgentID+"] "+fmt.Sprintf("%-18s", string(evt.ActionType))+" "+fmt.Sprintf("%-10s", evt.Action)) +
+		line = blockLine.Render(ts+" ["+agentLabel+"] "+fmt.Sprintf("%-18s", string(evt.ActionType))+" "+fmt.Sprintf("%-10s", evt.Action)) +
 			blockLineDetail(args, evt)
 	}
 
@@ -492,6 +493,7 @@ func (m *watchModel) recordAuditEvent(evt audit.AuditEvent) {
 
 	searchable := strings.ToLower(strings.Join([]string{
 		evt.AgentID,
+		evt.SessionID,
 		string(evt.ActionType),
 		evt.Action,
 		evt.Arguments,

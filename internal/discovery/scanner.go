@@ -13,12 +13,13 @@ import (
 var codexSessionIDPattern = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 type AgentInfo struct {
-	ID           string    `json:"id"`
-	Type         string    `json:"type"`
-	PID          int       `json:"pid"`
-	Status       string    `json:"status"` // active, inactive
-	SessionFile  string    `json:"session_file,omitempty"`
-	DiscoveredAt time.Time `json:"discovered_at"`
+	ID             string    `json:"id"`
+	Type           string    `json:"type"`
+	PID            int       `json:"pid"`
+	Status         string    `json:"status"` // active, inactive
+	SessionFile    string    `json:"session_file,omitempty"`
+	LastActivityAt time.Time `json:"last_activity_at,omitempty"`
+	DiscoveredAt   time.Time `json:"discovered_at"`
 }
 
 // ScanProcesses scans /proc for processes matching signatures.

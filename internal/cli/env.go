@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/crabwise-ai/crabwise/internal/daemon"
+	"github.com/crabwise-ai/crabwise/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -25,12 +26,12 @@ func newEnvCmd() *cobra.Command {
 				return fmt.Errorf("load config: %w", err)
 			}
 
-			for _, p := range proxyEnvPairs(cfg) {
+			for _, v := range service.ProxyEnvVars(envConfigFromDaemon(cfg)) {
 				switch shell {
 				case "fish":
-					fmt.Printf("set -gx %s %q\n", p.key, p.value)
+					fmt.Printf("set -gx %s %q\n", v.Key, v.Value)
 				default:
-					fmt.Printf("export %s=%q\n", p.key, p.value)
+					fmt.Printf("export %s=%q\n", v.Key, v.Value)
 				}
 			}
 			return nil
