@@ -11,6 +11,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Test hooks for dependency injection. Production defaults use real implementations.
+var (
+	detectManagerFn = service.DetectManager
+	getUIDFn        = os.Getuid
+	getSUDOUserFn   = func() string { return os.Getenv("SUDO_USER") }
+)
+
 func newServiceCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "service",
@@ -44,7 +51,7 @@ func newServiceInjectCmd() *cobra.Command {
 				return err
 			}
 
-			if err := service.ValidatePrivileges(scope, os.Getuid(), os.Getenv("SUDO_USER")); err != nil {
+			if err := service.ValidatePrivileges(scope, getUIDFn(), getSUDOUserFn()); err != nil {
 				if scope == service.ScopeSystem {
 					fmt.Fprintf(os.Stderr, "hint: %s\n",
 						service.SuggestElevatedCommand(os.Args))
@@ -52,7 +59,7 @@ func newServiceInjectCmd() *cobra.Command {
 				return err
 			}
 
-			mgr := service.DetectManager()
+			mgr := detectManagerFn()
 			if mgr == nil {
 				return fmt.Errorf("unsupported operating system")
 			}
@@ -121,7 +128,7 @@ func newServiceRemoveCmd() *cobra.Command {
 				return err
 			}
 
-			if err := service.ValidatePrivileges(scope, os.Getuid(), os.Getenv("SUDO_USER")); err != nil {
+			if err := service.ValidatePrivileges(scope, getUIDFn(), getSUDOUserFn()); err != nil {
 				if scope == service.ScopeSystem {
 					fmt.Fprintf(os.Stderr, "hint: %s\n",
 						service.SuggestElevatedCommand(os.Args))
@@ -129,7 +136,7 @@ func newServiceRemoveCmd() *cobra.Command {
 				return err
 			}
 
-			mgr := service.DetectManager()
+			mgr := detectManagerFn()
 			if mgr == nil {
 				return fmt.Errorf("unsupported operating system")
 			}
@@ -207,7 +214,7 @@ func newServiceStatusCmd() *cobra.Command {
 				return err
 			}
 
-			mgr := service.DetectManager()
+			mgr := detectManagerFn()
 			if mgr == nil {
 				return fmt.Errorf("unsupported operating system")
 			}
