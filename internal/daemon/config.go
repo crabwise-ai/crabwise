@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/crabwise-ai/crabwise/internal/service"
 	"gopkg.in/yaml.v3"
 )
 
@@ -33,6 +34,7 @@ type Config struct {
 	Commandments CommandmentsConfig `yaml:"commandments"`
 	ToolRegistry ToolRegistryConfig `yaml:"tool_registry"`
 	Cost         CostConfig         `yaml:"cost"`
+	Service      ServiceConfig      `yaml:"service"`
 	OTel         OTelConfig         `yaml:"otel"`
 }
 
@@ -132,6 +134,10 @@ type CostConfig struct {
 type ModelPricing struct {
 	Input  float64 `yaml:"input"`
 	Output float64 `yaml:"output"`
+}
+
+type ServiceConfig struct {
+	Agents map[string]service.AgentServiceEntry `yaml:"agents"`
 }
 
 // Duration wraps time.Duration for YAML unmarshaling.
