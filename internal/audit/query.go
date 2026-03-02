@@ -25,58 +25,6 @@ type QueryResult struct {
 	Total  int
 }
 
-type TokenSummaryRow struct {
-	Day          string `json:"day"`
-	AgentID      string `json:"agent_id"`
-	Model        string `json:"model"`
-	InputTokens  int64  `json:"input_tokens"`
-	OutputTokens int64  `json:"output_tokens"`
-}
-
-func QueryTokenSummary(db *sql.DB, f QueryFilter) ([]TokenSummaryRow, error) {
-	var conditions []string
-	var args []interface{}
-
-	if f.Since != nil {
-		conditions = append(conditions, "timestamp >= ?")
-		args = append(args, f.Since.UTC().Format(time.RFC3339Nano))
-	}
-	if f.Until != nil {
-		conditions = append(conditions, "timestamp <= ?")
-		args = append(args, f.Until.UTC().Format(time.RFC3339Nano))
-	}
-	if f.Agent != "" {
-		conditions = append(conditions, "agent_id = ?")
-		args = append(args, f.Agent)
-	}
-
-	conditions = append(conditions, "(input_tokens IS NOT NULL OR output_tokens IS NOT NULL)")
-	where := "WHERE " + strings.Join(conditions, " AND ")
-
-	query := `SELECT substr(timestamp, 1, 10) AS day, agent_id, COALESCE(model, '') AS model,
-		COALESCE(SUM(input_tokens), 0) AS input_tokens,
-		COALESCE(SUM(output_tokens), 0) AS output_tokens
-		FROM events ` + where + `
-		GROUP BY day, agent_id, model
-		ORDER BY day ASC, agent_id ASC, model ASC`
-
-	rows, err := db.Query(query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("query: %w", err)
-	}
-	defer rows.Close()
-
-	var result []TokenSummaryRow
-	for rows.Next() {
-		var row TokenSummaryRow
-		if err := rows.Scan(&row.Day, &row.AgentID, &row.Model, &row.InputTokens, &row.OutputTokens); err != nil {
-			return nil, fmt.Errorf("scan: %w", err)
-		}
-		result = append(result, row)
-	}
-	return result, rows.Err()
-}
-
 func QueryEvents(db *sql.DB, f QueryFilter) (*QueryResult, error) {
 	var conditions []string
 	var args []interface{}

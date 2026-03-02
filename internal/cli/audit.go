@@ -24,7 +24,6 @@ func newAuditCmd() *cobra.Command {
 		limit      int
 		export     string
 		verify     bool
-		tokens     bool
 	)
 
 	cmd := &cobra.Command{
@@ -69,10 +68,6 @@ func newAuditCmd() *cobra.Command {
 			}
 			defer client.Close()
 
-			if tokens {
-				return showTokenSummary(client, params)
-			}
-
 			return runAuditPlain(client, params)
 		},
 	}
@@ -88,7 +83,6 @@ func newAuditCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 50, "max events to return")
 	cmd.Flags().StringVar(&export, "export", "", "export format (json)")
 	cmd.Flags().BoolVar(&verify, "verify-integrity", false, "verify hash chain integrity")
-	cmd.Flags().BoolVar(&tokens, "tokens", false, "show token usage grouped by day/agent/model")
 
 	return cmd
 }
@@ -168,44 +162,6 @@ func verifyIntegrity(client *ipc.Client) error {
 		fmt.Printf("Hash chain BROKEN at event %s (%d events checked)\n", v.BrokenAt, v.Total)
 	}
 
-	return nil
-}
-
-func showTokenSummary(client *ipc.Client, params map[string]interface{}) error {
-	allowed := map[string]interface{}{}
-	if v, ok := params["since"]; ok {
-		allowed["since"] = v
-	}
-	if v, ok := params["until"]; ok {
-		allowed["until"] = v
-	}
-	if v, ok := params["agent"]; ok {
-		allowed["agent"] = v
-	}
-
-	result, err := client.Call("audit.tokens", allowed)
-	if err != nil {
-		return fmt.Errorf("audit.tokens: %w", err)
-	}
-
-	var rows []audit.TokenSummaryRow
-	if err := json.Unmarshal(result, &rows); err != nil {
-		return fmt.Errorf("parse token summary: %w", err)
-	}
-
-	if len(rows) == 0 {
-		fmt.Println("No token data found.")
-		return nil
-	}
-
-	var totalIn, totalOut int64
-	for _, row := range rows {
-		fmt.Printf("%s  %-12s  %-24s  in:%7d out:%7d\n",
-			row.Day, row.AgentID, row.Model, row.InputTokens, row.OutputTokens)
-		totalIn += row.InputTokens
-		totalOut += row.OutputTokens
-	}
-	fmt.Printf("\nTotal: in:%d out:%d\n", totalIn, totalOut)
 	return nil
 }
 
