@@ -42,8 +42,8 @@ func newAgentsTUIModel(socketPath string) agentsTUIModel {
 func agentsColumns(width int) []table.Column {
 	return []table.Column{
 		{Title: "STATUS", Width: 8},
-		{Title: "ID", Width: 20},
-		{Title: "TYPE", Width: 16},
+		{Title: "ID", Width: 30},
+		{Title: "TYPE", Width: 12},
 		{Title: "PID", Width: 10},
 	}
 }

@@ -3,5 +3,6 @@ bin/
 *.db-wal
 *.db-shm
 .worktrees/
+.claude/worktrees/
 .gocache/
 docs/plans/*.swp

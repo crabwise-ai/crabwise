@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadConfig_Defaults(t *testing.T) {
@@ -191,5 +192,85 @@ func TestLoadConfig_ToolRegistryDefaultPathWhenEmpty(t *testing.T) {
 
 	if filepath.Base(cfg.ToolRegistry.File) != "tool_registry.yaml" {
 		t.Fatalf("expected default tool registry path, got %s", cfg.ToolRegistry.File)
+	}
+}
+
+func TestLoadConfig_OpenClawDefaults(t *testing.T) {
+	cfg, err := LoadConfig("/nonexistent/path.yaml")
+	if err != nil {
+		t.Fatalf("load defaults: %v", err)
+	}
+
+	if cfg.Adapters.OpenClaw.Enabled {
+		t.Fatal("expected adapters.openclaw.enabled to default false")
+	}
+	if cfg.Adapters.OpenClaw.GatewayURL != "ws://127.0.0.1:18789" {
+		t.Fatalf("expected default gateway_url, got %q", cfg.Adapters.OpenClaw.GatewayURL)
+	}
+	if cfg.Adapters.OpenClaw.APITokenEnv != "OPENCLAW_API_TOKEN" {
+		t.Fatalf("expected default api_token_env, got %q", cfg.Adapters.OpenClaw.APITokenEnv)
+	}
+	if cfg.Adapters.OpenClaw.SessionRefreshInterval.Duration() != 30*time.Second {
+		t.Fatalf("expected default session_refresh_interval 30s, got %s", cfg.Adapters.OpenClaw.SessionRefreshInterval.Duration())
+	}
+	if cfg.Adapters.OpenClaw.CorrelationWindow.Duration() != 3*time.Second {
+		t.Fatalf("expected default correlation_window 3s, got %s", cfg.Adapters.OpenClaw.CorrelationWindow.Duration())
+	}
+}
+
+func TestLoadConfig_OpenClawValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		wantErr string
+	}{
+		{
+			name: "gateway url required",
+			content: `
+adapters:
+  openclaw:
+    enabled: true
+    gateway_url: ""
+`,
+			wantErr: "adapters.openclaw.gateway_url required when openclaw enabled",
+		},
+		{
+			name: "session refresh interval must be positive",
+			content: `
+adapters:
+  openclaw:
+    enabled: true
+    session_refresh_interval: 0s
+`,
+			wantErr: "adapters.openclaw.session_refresh_interval must be > 0 when openclaw enabled",
+		},
+		{
+			name: "correlation window must be positive",
+			content: `
+adapters:
+  openclaw:
+    enabled: true
+    correlation_window: 0s
+`,
+			wantErr: "adapters.openclaw.correlation_window must be > 0 when openclaw enabled",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cfgPath := filepath.Join(dir, "config.yaml")
+			if err := os.WriteFile(cfgPath, []byte(tc.content), 0600); err != nil {
+				t.Fatalf("write config: %v", err)
+			}
+
+			_, err := LoadConfig(cfgPath)
+			if err == nil {
+				t.Fatalf("expected error %q", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("expected error containing %q, got %v", tc.wantErr, err)
+			}
+		})
 	}
 }

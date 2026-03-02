@@ -27,6 +27,47 @@ codex
 
 That's it. Under the hood, `crabwise wrap` sets `HTTPS_PROXY=http://127.0.0.1:9119` and `NODE_EXTRA_CA_CERTS=~/.local/share/crabwise/ca.crt`, then runs Codex. All of Codex's API calls to `api.openai.com` flow through crabwise. Non-AI traffic (git, npm, etc.) tunnels through transparently.
 
+**OpenClaw uses the same proxy path. Two modes depending on how you run it:**
+
+```bash
+# Interactive / dev mode -- wrap sets env for this session only
+crabwise wrap -- openclaw gateway
+
+# Production daemon -- inject persists env in the service definition
+sudo crabwise service inject --agent openclaw --restart
+
+# User-scoped agents (no sudo)
+crabwise service inject --scope user --agent my-agent --restart
+
+# Check injection status
+crabwise service status --agent openclaw
+crabwise service status --scope user --agent my-agent
+
+# Remove later
+sudo crabwise service remove --agent openclaw --restart
+```
+
+Note: `--scope user` rejects root/sudo — run as the owning user. `--scope system` (default) requires root.
+
+If you want OpenClaw session attribution in `crabwise watch`, `agents`, and `audit`, enable the read-only Gateway observer:
+
+```yaml
+adapters:
+  openclaw:
+    enabled: true
+    gateway_url: ws://127.0.0.1:18789
+    api_token_env: OPENCLAW_API_TOKEN
+    session_refresh_interval: 30s
+    correlation_window: 3s
+```
+
+Phase 1 scope is intentionally narrow:
+
+1. Crabwise blocks upstream provider calls that go through the forward proxy.
+2. Crabwise enriches those proxy events with OpenClaw session identity when the Gateway is available and correlation is confident.
+3. Changes under `adapters.openclaw.*` require a daemon restart in phase 1. `SIGHUP` does not restart or reconfigure the OpenClaw adapter.
+4. Crabwise does not yet govern local OpenClaw tool execution after a model response has already reached the OpenClaw host.
+
 **Writing commandments that actually block:**
 
 The user's commandments file (`~/.config/crabwise/commandments.yaml`) already works -- the issue was never the rules, it was that traffic wasn't hitting the proxy. With the forward proxy, the same rules now enforce:
@@ -71,12 +112,19 @@ commandments:
 # Confirm proxy is seeing traffic
 crabwise status
 # Should show: Proxy reqs > 0 (this was 0 in the investigation)
+# If OpenClaw attribution is enabled, status also shows:
+#   OpenClaw: connected
+#   OC sessions / matches / ambiguous
 
 # See blocks happening live
 crabwise watch
 
 # Query blocked events
 crabwise audit --triggered --outcome blocked
+
+# Query only OpenClaw-attributed events
+crabwise audit --agent openclaw
+crabwise audit --agent openclaw --session agent:main:discord:channel:123
 ```
 
 The critical difference from before: the user doesn't need to know that Codex uses `OPENAI_BASE_URL`, or that Claude Code uses a different var, or how each client configures its API endpoint. `crabwise wrap` handles all of it with one universal mechanism.

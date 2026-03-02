@@ -4,16 +4,17 @@ import (
 	"testing"
 
 	"github.com/crabwise-ai/crabwise/internal/daemon"
+	"github.com/crabwise-ai/crabwise/internal/service"
 )
 
 func TestProxyEnvPairsIncludesUpperAndLowercaseProxyVars(t *testing.T) {
 	cfg := &daemon.Config{}
 	cfg.Adapters.Proxy.Listen = "127.0.0.1:9119"
 
-	pairs := proxyEnvPairs(cfg)
+	pairs := service.ProxyEnvVars(envConfigFromDaemon(cfg))
 	values := make(map[string]string, len(pairs))
 	for _, pair := range pairs {
-		values[pair.key] = pair.value
+		values[pair.Key] = pair.Value
 	}
 
 	expectedProxyURL := "http://127.0.0.1:9119"

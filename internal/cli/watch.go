@@ -88,9 +88,7 @@ func runWatchText(cfg *daemon.Config) error {
 			if err := json.Unmarshal(notif.Params, &evt); err != nil {
 				continue
 			}
-			ts := evt.Timestamp.Format("15:04:05")
-			fmt.Printf("%s [%s] %-18s %-10s %s\n",
-				ts, evt.AgentID, evt.ActionType, evt.Action, truncate(evt.Arguments, 60))
+			fmt.Println(formatWatchTextEvent(evt))
 		case "audit.heartbeat":
 			// silent
 		}
@@ -118,4 +116,15 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max-3] + "..."
+}
+
+func formatWatchTextEvent(evt audit.AuditEvent) string {
+	ts := evt.Timestamp.Format("15:04:05")
+	return fmt.Sprintf("%s [%s] %-18s %-10s %s",
+		ts,
+		fullAgentLabel(evt.AgentID, evt.SessionID),
+		evt.ActionType,
+		evt.Action,
+		truncate(evt.Arguments, 60),
+	)
 }
