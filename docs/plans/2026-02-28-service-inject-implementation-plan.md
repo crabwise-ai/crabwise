@@ -1,6 +1,6 @@
 # Service Inject Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **Status: COMPLETE** — All 8 tasks implemented and verified. See completion notes at end of each task.
 
 **Goal:** Add `crabwise service inject|remove|status` as a scoped platform feature that governs daemon-managed agents across both `system` and `user` service domains on Linux and macOS.
 
@@ -376,6 +376,8 @@ git add internal/service/types.go internal/service/env.go internal/service/env_t
 git commit -m "feat: add service Manager interface and shared proxy env helpers"
 ```
 
+> **DONE** — `d50520c`. All 8 tests pass. Types, interface, env helpers, ParseScope, ResolveAgentName implemented as specified.
+
 ---
 
 ### Task 2: Refactor `crabwise wrap` and `crabwise env` to use shared proxy env
@@ -551,6 +553,8 @@ Expected: PASS, clean build.
 git add internal/cli/wrap.go internal/cli/env.go
 git commit -m "refactor: wrap and env use shared proxy env from internal/service"
 ```
+
+> **DONE** — `41f41a4`. Removed `envPair`/`proxyEnvPairs`, added `envConfigFromDaemon` helper, `overlayEnv` takes `[]service.EnvVar`. Existing wrap/env tests pass.
 
 ---
 
@@ -778,6 +782,8 @@ Expected: PASS
 git add internal/service/systemd.go internal/service/systemd_test.go
 git commit -m "feat: add SystemdManager implementing service.Manager"
 ```
+
+> **DONE** — `12d515b`. All 16 tests pass (resolve, inject, remove, check, restart for system/user scopes).
 
 ---
 
@@ -1055,6 +1061,8 @@ git add internal/service/launchd.go internal/service/launchd_test.go
 git commit -m "feat: add LaunchdManager implementing service.Manager"
 ```
 
+> **DONE** — `f5c7138`, fixup `40aa0c2` (errorlint). All 19 tests pass. Uses `errors.As` for ExitError matching per linter.
+
 ---
 
 ### Task 5: Add manager detection and privilege guards
@@ -1214,6 +1222,8 @@ Expected: PASS
 git add internal/service/detect.go internal/service/detect_test.go
 git commit -m "feat: add manager detection and privilege guards"
 ```
+
+> **DONE** — `a0cfe44`. All 9 tests pass.
 
 ---
 
@@ -1590,6 +1600,15 @@ git add internal/cli/service.go internal/cli/root.go internal/cli/service_test.g
 git commit -m "feat: add scoped crabwise service commands"
 ```
 
+> **DONE** — `17484ef`. Initial commit had 6 of 10 planned tests (structural/config/agent-resolution).
+> **Post-review addition:** Added 6 missing CLI integration tests exercising RunE paths
+> (`TestServiceInjectCmd_SystemScope`, `TestServiceInjectCmd_UserScope`,
+> `TestServiceStatusCmd_NotFound`, `TestServiceStatusCmd_NotInjected`,
+> `TestServiceStatusCmd_CheckError`, `TestServiceRejectsRootForUserScope`).
+> Required adding package-level test hooks (`detectManagerFn`, `getUIDFn`, `getSUDOUserFn`)
+> to `service.go` to make RunE closures testable via mock `service.Manager`.
+> All 12 CLI tests now pass.
+
 ---
 
 ### Task 7: Update docs for system and user service domains
@@ -1655,6 +1674,8 @@ git add README.md docs/plans/proxy_enforcement-howto.md
 git commit -m "docs: add scoped service inject guide"
 ```
 
+> **DONE** — `d3b34be`. README and howto both updated with scoped examples, platform notes, and privilege requirements.
+
 ---
 
 ### Task 8: Final verification pass
@@ -1703,3 +1724,24 @@ git commit -m "chore: finalize scoped service inject feature"
 ```
 
 Only do this if verification required cleanup changes.
+
+> **DONE** — `go test ./...` passes (20 packages), `golangci-lint` clean. One fixup commit (`40aa0c2`) for errorlint on `launchd_test.go`.
+
+---
+
+## Post-Plan Work
+
+### CLI integration test gap (identified during PR review)
+
+The plan specified 10 CLI tests in Task 6 but only 6 were implemented initially (structural/config/resolution tests). The 6 missing tests exercised RunE execution paths:
+
+- `TestServiceInjectCmd_SystemScope`
+- `TestServiceInjectCmd_UserScope`
+- `TestServiceStatusCmd_NotFound`
+- `TestServiceStatusCmd_NotInjected`
+- `TestServiceStatusCmd_CheckError`
+- `TestServiceRejectsRootForUserScope`
+
+**Root cause:** The commands hardcoded `service.DetectManager()`, `os.Getuid()`, `os.Getenv("SUDO_USER")` in RunE closures, making them untestable without real root/service fixtures.
+
+**Fix:** Added package-level test hooks (`detectManagerFn`, `getUIDFn`, `getSUDOUserFn`) to `service.go` — behavior-preserving refactor. Tests swap hooks via `t.Cleanup` to inject a `mockManager` and simulate privilege contexts. All 12 CLI tests now pass.
