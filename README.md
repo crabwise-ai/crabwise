@@ -154,6 +154,32 @@ crabwise wrap -- python my_agent.py
 crabwise wrap -- openclaw gateway
 ```
 
+### `crabwise service`
+
+Manages proxy injection for daemon-managed agents running under systemd (Linux) or launchd (macOS). Unlike `crabwise wrap` (which sets environment at exec time), `crabwise service` persists proxy config in the service definition so it survives reboots.
+
+Two scopes:
+- `--scope system` (default) — requires root. Linux: `/etc/systemd/system`, macOS: `/Library/LaunchDaemons`
+- `--scope user` — no root, rejects sudo. Linux: `~/.config/systemd/user`, macOS: `~/Library/LaunchAgents`
+
+`--agent` resolves via the config registry (e.g. `openclaw` → `openclaw-gateway` on Linux). Unknown names are treated as literal unit names.
+
+```bash
+# Production daemon (resolves via registry, system scope default)
+sudo crabwise service inject --agent openclaw --restart
+
+# Per-user agent (literal fallback, user scope)
+crabwise service inject --scope user --agent my-agent --restart
+
+# Check injection status
+crabwise service status --agent openclaw
+crabwise service status --scope user --agent my-agent
+
+# Remove injection
+sudo crabwise service remove --agent openclaw --restart
+crabwise service remove --scope user --agent my-agent --restart
+```
+
 ### `crabwise env`
 
 Prints proxy environment variables for shell evaluation.
