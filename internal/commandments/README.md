@@ -81,7 +81,6 @@ You can match on any of these audit event fields. The value is compared with the
 | `outcome` | Event outcome |
 | `input_tokens` | Token count (numeric) |
 | `output_tokens` | Token count (numeric) |
-| `cost_usd` | Cost (numeric) |
 | `agent_pid` | Agent process id (numeric) |
 
 If an event has no value for a matched field (e.g. empty string or missing), that condition fails and the rule does not trigger.

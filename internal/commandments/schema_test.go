@@ -69,6 +69,27 @@ commandments:
 	}
 }
 
+func TestLoadYAML_UnknownMatchField(t *testing.T) {
+	input := `
+version: "1"
+commandments:
+  - name: stale-cost-rule
+    enforcement: warn
+    match:
+      cost_usd:
+        type: numeric
+        op: gte
+        value: 1.0
+`
+	_, err := LoadYAML([]byte(input))
+	if err == nil {
+		t.Fatal("expected unknown field validation error")
+	}
+	if !strings.Contains(err.Error(), "unknown match field") {
+		t.Fatalf("expected 'unknown match field' error, got: %v", err)
+	}
+}
+
 func TestLoadYAML_TotalPatternCap(t *testing.T) {
 	values := make([]string, 0, MaxCompiledPatterns+1)
 	for i := 0; i < MaxCompiledPatterns+1; i++ {

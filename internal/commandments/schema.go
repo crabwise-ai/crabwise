@@ -151,7 +151,20 @@ func (rs *RuleSet) Validate() error {
 	return nil
 }
 
-func validateMatchCondition(_ string, spec MatchCondition) (int, error) {
+// validMatchFields is the set of audit event fields that rules can match on.
+// Unknown fields are rejected at load time so stale rules fail fast.
+var validMatchFields = map[string]struct{}{
+	"id": {}, "agent_id": {}, "action_type": {}, "action": {},
+	"arguments": {}, "session_id": {}, "working_dir": {}, "provider": {},
+	"model": {}, "tool_category": {}, "tool_effect": {}, "tool_name": {},
+	"adapter_type": {}, "adapter_id": {}, "outcome": {},
+	"input_tokens": {}, "output_tokens": {}, "agent_pid": {},
+}
+
+func validateMatchCondition(field string, spec MatchCondition) (int, error) {
+	if _, ok := validMatchFields[field]; !ok {
+		return 0, fmt.Errorf("unknown match field %q", field)
+	}
 	matcherType := strings.TrimSpace(spec.Type)
 	if matcherType == "" {
 		return 0, fmt.Errorf("type is required")
