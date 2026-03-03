@@ -21,10 +21,9 @@ type auditEventsLoadedMsg struct {
 	err    error
 }
 
-type auditCostLoadedMsg struct {
-	rows      []audit.CostSummaryRow
-	totalCost float64
-	err       error
+type auditTokensLoadedMsg struct {
+	rows []audit.TokenSummaryRow
+	err  error
 }
 
 type auditVerifyResultMsg struct {
@@ -38,7 +37,7 @@ type auditTUIModel struct {
 	socketPath string
 	width      int
 	height     int
-	mode       string // "events" or "cost"
+	mode       string // "events" or "tokens"
 
 	// Event mode fields
 	table        table.Model
@@ -51,10 +50,9 @@ type auditTUIModel struct {
 	filterInput  textinput.Model
 	filterText   string // applied filter
 
-	// Cost mode fields
-	costTable table.Model
-	costRows  []audit.CostSummaryRow
-	totalCost float64
+	// Token mode fields
+	tokensTable table.Model
+	tokensRows  []audit.TokenSummaryRow
 
 	// Verification fields
 	verifying    bool
@@ -71,8 +69,8 @@ func newAuditTUIModel(socketPath string, queryParams map[string]interface{}, ini
 	t := tui.NewStyledTable(cols, nil, tui.WithHeight(10))
 	t.Focus()
 
-	costCols := auditCostColumns()
-	ct := tui.NewStyledTable(costCols, nil, tui.WithHeight(10))
+	tokensCols := auditTokensColumns()
+	ct := tui.NewStyledTable(tokensCols, nil, tui.WithHeight(10))
 
 	ti := textinput.New()
 	ti.Placeholder = "filter (o:blocked  a:tool_call  agent:name)"
@@ -80,8 +78,8 @@ func newAuditTUIModel(socketPath string, queryParams map[string]interface{}, ini
 	ti.Width = 50
 
 	mode := "events"
-	if initialMode == "cost" {
-		mode = "cost"
+	if initialMode == "tokens" {
+		mode = "tokens"
 	}
 
 	return auditTUIModel{
@@ -90,7 +88,7 @@ func newAuditTUIModel(socketPath string, queryParams map[string]interface{}, ini
 		height:      24,
 		mode:        mode,
 		table:       t,
-		costTable:   ct,
+		tokensTable: ct,
 		filterInput: ti,
 		queryParams: queryParams,
 		pageSize:    12,
@@ -104,24 +102,22 @@ func auditEventsColumns() []table.Column {
 		{Title: "ACTION TYPE", Width: 19},
 		{Title: "ACTION", Width: 11},
 		{Title: "OUTCOME", Width: 11},
-		{Title: "COST", Width: 7},
 	}
 }
 
-func auditCostColumns() []table.Column {
+func auditTokensColumns() []table.Column {
 	return []table.Column{
 		{Title: "DAY", Width: 12},
 		{Title: "AGENT", Width: 14},
 		{Title: "MODEL", Width: 24},
-		{Title: "IN", Width: 8},
-		{Title: "OUT", Width: 8},
-		{Title: "COST", Width: 8},
+		{Title: "IN", Width: 10},
+		{Title: "OUT", Width: 10},
 	}
 }
 
 func (m auditTUIModel) Init() tea.Cmd {
-	if m.mode == "cost" {
-		return loadAuditCost(m.socketPath, m.queryParams)
+	if m.mode == "tokens" {
+		return loadAuditTokens(m.socketPath, m.queryParams)
 	}
 	return loadAuditEvents(m.socketPath, m.queryParams, m.page, m.pageSize, "")
 }
@@ -164,8 +160,8 @@ func (m auditTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "c":
 			if m.mode == "events" {
-				m.mode = "cost"
-				return m, loadAuditCost(m.socketPath, m.queryParams)
+				m.mode = "tokens"
+				return m, loadAuditTokens(m.socketPath, m.queryParams)
 			}
 			m.mode = "events"
 			return m, loadAuditEvents(m.socketPath, m.queryParams, m.page, m.pageSize, m.filterText)
@@ -197,8 +193,8 @@ func (m auditTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pageSize = ps
 		m.table.SetWidth(msg.Width)
 		m.table.SetHeight(ps)
-		m.costTable.SetWidth(msg.Width)
-		m.costTable.SetHeight(ps)
+		m.tokensTable.SetWidth(msg.Width)
+		m.tokensTable.SetHeight(ps)
 
 	case auditEventsLoadedMsg:
 		if msg.err != nil {
@@ -215,15 +211,14 @@ func (m auditTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.table.SetRows(auditEventsToRows(msg.events))
 		return m, nil
 
-	case auditCostLoadedMsg:
+	case auditTokensLoadedMsg:
 		if msg.err != nil {
 			m.err = msg.err
 			return m, nil
 		}
 		m.err = nil
-		m.costRows = msg.rows
-		m.totalCost = msg.totalCost
-		m.costTable.SetRows(auditCostToRows(msg.rows))
+		m.tokensRows = msg.rows
+		m.tokensTable.SetRows(auditTokensToRows(msg.rows))
 		return m, nil
 
 	case auditVerifyResultMsg:
@@ -245,9 +240,9 @@ func (m auditTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.table, cmd = m.table.Update(msg)
 		return m, cmd
 	}
-	if m.mode == "cost" {
+	if m.mode == "tokens" {
 		var cmd tea.Cmd
-		m.costTable, cmd = m.costTable.Update(msg)
+		m.tokensTable, cmd = m.tokensTable.Update(msg)
 		return m, cmd
 	}
 
@@ -262,8 +257,8 @@ func (m auditTUIModel) View() string {
 
 	var b strings.Builder
 
-	if m.mode == "cost" {
-		b.WriteString(renderAuditBanner("Audit — Cost Summary", ""))
+	if m.mode == "tokens" {
+		b.WriteString(renderAuditBanner("Audit — Token Summary", ""))
 	} else {
 		countInfo := fmt.Sprintf("%d events", m.total)
 		b.WriteString(renderAuditBanner("Audit Trail", countInfo))
@@ -295,10 +290,8 @@ func (m auditTUIModel) View() string {
 		return b.String()
 	}
 
-	if m.mode == "cost" {
-		b.WriteString(m.costTable.View())
-		b.WriteString("\n\n")
-		b.WriteString("  " + tui.StyleBody.Render("Total: ") + tui.StyleHeading.Render(tui.FormatCost(m.totalCost)))
+	if m.mode == "tokens" {
+		b.WriteString(m.tokensTable.View())
 		b.WriteString("\n\n")
 		b.WriteString(tui.RenderStatusBar("↑↓ navigate  c events view  q quit", "", w))
 	} else {
@@ -317,7 +310,7 @@ func (m auditTUIModel) View() string {
 		b.WriteString("\n")
 
 		pageInfo := fmt.Sprintf("Page %d/%d", m.page+1, m.totalPages)
-		b.WriteString(tui.RenderStatusBar("↑↓ navigate  / filter  c cost view  v verify  n/p page  q quit", pageInfo, w))
+		b.WriteString(tui.RenderStatusBar("↑↓ navigate  / filter  c tokens view  v verify  n/p page  q quit", pageInfo, w))
 	}
 
 	return b.String()
@@ -351,11 +344,7 @@ func auditEventsToRows(events []*audit.AuditEvent) []table.Row {
 		actionType := string(e.ActionType)
 		action := tui.Truncate(e.Action, 11)
 		outcome := formatAuditOutcome(e.Outcome)
-		cost := ""
-		if e.ActionType == audit.ActionAIRequest && e.CostUSD > 0 {
-			cost = tui.FormatCost(e.CostUSD)
-		}
-		rows[i] = table.Row{ts, agent, actionType, action, outcome, cost}
+		rows[i] = table.Row{ts, agent, actionType, action, outcome}
 	}
 	return rows
 }
@@ -375,16 +364,15 @@ func formatAuditOutcome(outcome audit.Outcome) string {
 	}
 }
 
-func auditCostToRows(costRows []audit.CostSummaryRow) []table.Row {
-	rows := make([]table.Row, len(costRows))
-	for i, r := range costRows {
+func auditTokensToRows(tokensRows []audit.TokenSummaryRow) []table.Row {
+	rows := make([]table.Row, len(tokensRows))
+	for i, r := range tokensRows {
 		rows[i] = table.Row{
 			r.Day,
 			tui.Truncate(r.AgentID, 14),
 			tui.Truncate(r.Model, 24),
 			fmt.Sprintf("%d", r.InputTokens),
 			fmt.Sprintf("%d", r.OutputTokens),
-			tui.FormatCost(r.CostUSD),
 		}
 	}
 	return rows
@@ -440,11 +428,11 @@ func loadAuditEvents(socketPath string, baseParams map[string]interface{}, page,
 	}
 }
 
-func loadAuditCost(socketPath string, baseParams map[string]interface{}) tea.Cmd {
+func loadAuditTokens(socketPath string, baseParams map[string]interface{}) tea.Cmd {
 	return func() tea.Msg {
 		client, err := ipc.Dial(socketPath)
 		if err != nil {
-			return auditCostLoadedMsg{err: fmt.Errorf("connect to daemon: %w", err)}
+			return auditTokensLoadedMsg{err: fmt.Errorf("connect to daemon: %w", err)}
 		}
 		defer client.Close()
 
@@ -459,22 +447,17 @@ func loadAuditCost(socketPath string, baseParams map[string]interface{}) tea.Cmd
 			allowed["agent"] = v
 		}
 
-		result, err := client.Call("audit.cost", allowed)
+		result, err := client.Call("audit.tokens", allowed)
 		if err != nil {
-			return auditCostLoadedMsg{err: fmt.Errorf("audit.cost: %w", err)}
+			return auditTokensLoadedMsg{err: fmt.Errorf("audit.tokens: %w", err)}
 		}
 
-		var rows []audit.CostSummaryRow
+		var rows []audit.TokenSummaryRow
 		if err := json.Unmarshal(result, &rows); err != nil {
-			return auditCostLoadedMsg{err: fmt.Errorf("parse cost summary: %w", err)}
+			return auditTokensLoadedMsg{err: fmt.Errorf("parse token summary: %w", err)}
 		}
 
-		var total float64
-		for _, r := range rows {
-			total += r.CostUSD
-		}
-
-		return auditCostLoadedMsg{rows: rows, totalCost: total}
+		return auditTokensLoadedMsg{rows: rows}
 	}
 }
 

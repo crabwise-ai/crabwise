@@ -415,7 +415,7 @@ func (d *Daemon) registerIPC() {
 		return result.Events, nil
 	})
 
-	d.ipcServer.Handle("audit.cost", func(params json.RawMessage) (interface{}, error) {
+	d.ipcServer.Handle("audit.tokens", func(params json.RawMessage) (interface{}, error) {
 		var filter audit.QueryFilter
 		if len(params) > 0 {
 			var f struct {
@@ -436,7 +436,7 @@ func (d *Daemon) registerIPC() {
 			}
 			filter.Agent = f.Agent
 		}
-		return audit.QueryCostSummary(d.store.DB(), filter)
+		return audit.QueryTokenSummary(d.store.DB(), filter)
 	})
 
 	d.ipcServer.HandleSubscribe(func(params json.RawMessage, send func(string, interface{}) error, done <-chan struct{}) error {
