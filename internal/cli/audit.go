@@ -23,8 +23,8 @@ func newAuditCmd() *cobra.Command {
 		triggered  bool
 		limit      int
 		export     string
-		verify     bool
-		cost       bool
+		verify  bool
+		tokens  bool
 	)
 
 	cmd := &cobra.Command{
@@ -60,8 +60,8 @@ func newAuditCmd() *cobra.Command {
 			// Interactive TUI when not in plain mode and no machine-output flags.
 			if !isPlain() {
 				initialMode := "events"
-				if cost {
-					initialMode = "cost"
+				if tokens {
+					initialMode = "tokens"
 				}
 				return runAuditTUI(cfg.Daemon.SocketPath, params, initialMode)
 			}
@@ -73,8 +73,8 @@ func newAuditCmd() *cobra.Command {
 			}
 			defer client.Close()
 
-			if cost {
-				return showCostSummary(client, params)
+			if tokens {
+				return showTokenSummary(client, params)
 			}
 
 			return runAuditPlain(client, params)
@@ -92,7 +92,7 @@ func newAuditCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 50, "max events to return")
 	cmd.Flags().StringVar(&export, "export", "", "export format (json)")
 	cmd.Flags().BoolVar(&verify, "verify-integrity", false, "verify hash chain integrity")
-	cmd.Flags().BoolVar(&cost, "cost", false, "show cost summary grouped by day/agent/model")
+	cmd.Flags().BoolVar(&tokens, "tokens", false, "show token summary grouped by day/agent/model")
 
 	return cmd
 }
@@ -207,7 +207,7 @@ func exportJSON(client *ipc.Client, params map[string]interface{}) error {
 	return nil
 }
 
-func showCostSummary(client *ipc.Client, params map[string]interface{}) error {
+func showTokenSummary(client *ipc.Client, params map[string]interface{}) error {
 	allowed := map[string]interface{}{}
 	if v, ok := params["since"]; ok {
 		allowed["since"] = v
@@ -219,27 +219,24 @@ func showCostSummary(client *ipc.Client, params map[string]interface{}) error {
 		allowed["agent"] = v
 	}
 
-	result, err := client.Call("audit.cost", allowed)
+	result, err := client.Call("audit.tokens", allowed)
 	if err != nil {
-		return fmt.Errorf("audit.cost: %w", err)
+		return fmt.Errorf("audit.tokens: %w", err)
 	}
 
-	var rows []audit.CostSummaryRow
+	var rows []audit.TokenSummaryRow
 	if err := json.Unmarshal(result, &rows); err != nil {
-		return fmt.Errorf("parse cost summary: %w", err)
+		return fmt.Errorf("parse token summary: %w", err)
 	}
 
 	if len(rows) == 0 {
-		fmt.Println("No cost data found.")
+		fmt.Println("No token data found.")
 		return nil
 	}
 
-	var total float64
 	for _, row := range rows {
-		fmt.Printf("%s  %-12s  %-24s  in:%7d out:%7d  $%.6f\n",
-			row.Day, row.AgentID, row.Model, row.InputTokens, row.OutputTokens, row.CostUSD)
-		total += row.CostUSD
+		fmt.Printf("%s  %-12s  %-24s  in:%7d out:%7d\n",
+			row.Day, row.AgentID, row.Model, row.InputTokens, row.OutputTokens)
 	}
-	fmt.Printf("\nTotal cost: $%.6f\n", total)
 	return nil
 }

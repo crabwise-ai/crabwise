@@ -27,7 +27,6 @@ func TestAuditTUIModel_EventsLoaded(t *testing.T) {
 			ActionType: audit.ActionAIRequest,
 			Action:     "chat",
 			Outcome:    audit.OutcomeSuccess,
-			CostUSD:    0.02,
 		},
 		{
 			Timestamp:  time.Date(2026, 2, 26, 14, 31, 30, 0, time.UTC),
@@ -67,16 +66,6 @@ func TestAuditTUIModel_EventsLoaded(t *testing.T) {
 		t.Fatalf("expected agent 'claude-a8f2', got %q", rows[0][1])
 	}
 
-	// Verify cost column — ai_request with cost
-	if rows[1][5] != "$0.02" {
-		t.Fatalf("expected cost '$0.02', got %q", rows[1][5])
-	}
-
-	// Verify cost column — non-ai_request has no cost
-	if rows[0][5] != "" {
-		t.Fatalf("expected empty cost for tool_call, got %q", rows[0][5])
-	}
-
 	// Verify outcome column uses readable plain text.
 	if rows[2][4] != "BLOCKED" {
 		t.Fatalf("expected 'BLOCKED' in outcome column, got %q", rows[2][4])
@@ -92,48 +81,42 @@ func TestAuditTUIModel_EventsLoaded(t *testing.T) {
 	}
 }
 
-func TestAuditTUIModel_CostLoaded(t *testing.T) {
-	m := newAuditTUIModel("/tmp/nonexistent.sock", map[string]interface{}{}, "cost")
+func TestAuditTUIModel_TokensLoaded(t *testing.T) {
+	m := newAuditTUIModel("/tmp/nonexistent.sock", map[string]interface{}{}, "tokens")
 
-	costRows := []audit.CostSummaryRow{
-		{Day: "2026-02-26", AgentID: "claude-a8f2", Model: "gpt-4o", InputTokens: 1200, OutputTokens: 3400, CostUSD: 0.05},
-		{Day: "2026-02-26", AgentID: "codex-1bc9", Model: "gpt-4o-mini", InputTokens: 800, OutputTokens: 1200, CostUSD: 0.01},
+	costRows := []audit.TokenSummaryRow{
+		{Day: "2026-02-26", AgentID: "claude-a8f2", Model: "gpt-4o", InputTokens: 1200, OutputTokens: 3400},
+		{Day: "2026-02-26", AgentID: "codex-1bc9", Model: "gpt-4o-mini", InputTokens: 800, OutputTokens: 1200},
 	}
 
-	msg := auditCostLoadedMsg{rows: costRows, totalCost: 0.06}
+	msg := auditTokensLoadedMsg{rows: costRows}
 	updated, cmd := m.Update(msg)
 	if cmd != nil {
-		t.Fatalf("expected nil cmd from cost loaded, got %T", cmd)
+		t.Fatalf("expected nil cmd from tokens loaded, got %T", cmd)
 	}
 	next := updated.(auditTUIModel)
 
-	if len(next.costRows) != 2 {
-		t.Fatalf("expected 2 cost rows, got %d", len(next.costRows))
-	}
-	if next.totalCost != 0.06 {
-		t.Fatalf("expected total cost 0.06, got %f", next.totalCost)
+	if len(next.tokensRows) != 2 {
+		t.Fatalf("expected 2 token rows, got %d", len(next.tokensRows))
 	}
 
-	rows := next.costTable.Rows()
+	rows := next.tokensTable.Rows()
 	if len(rows) != 2 {
-		t.Fatalf("expected 2 cost table rows, got %d", len(rows))
+		t.Fatalf("expected 2 tokens table rows, got %d", len(rows))
 	}
 
 	// Verify columns
 	if rows[0][0] != "2026-02-26" {
 		t.Fatalf("expected day '2026-02-26', got %q", rows[0][0])
 	}
-	if rows[0][5] != "$0.05" {
-		t.Fatalf("expected cost '$0.05', got %q", rows[0][5])
+	if rows[0][3] != "1200" {
+		t.Fatalf("expected input tokens '1200', got %q", rows[0][3])
 	}
 
-	// View should contain cost heading and total
+	// View should contain token summary heading
 	view := next.View()
-	if !strings.Contains(view, "Cost Summary") {
-		t.Fatalf("expected 'Cost Summary' heading in view")
-	}
-	if !strings.Contains(view, "$0.06") {
-		t.Fatalf("expected total '$0.06' in view, got: %s", view)
+	if !strings.Contains(view, "Token Summary") {
+		t.Fatalf("expected 'Token Summary' heading in view")
 	}
 }
 
@@ -144,14 +127,14 @@ func TestAuditTUIModel_ModeToggle(t *testing.T) {
 		t.Fatalf("expected initial mode 'events', got %q", m.mode)
 	}
 
-	// Press 'c' to switch to cost mode
+	// Press 'c' to switch to tokens mode
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
 	if cmd == nil {
-		t.Fatal("expected cmd from mode toggle to cost")
+		t.Fatal("expected cmd from mode toggle to tokens")
 	}
 	next := updated.(auditTUIModel)
-	if next.mode != "cost" {
-		t.Fatalf("expected mode 'cost' after toggle, got %q", next.mode)
+	if next.mode != "tokens" {
+		t.Fatalf("expected mode 'tokens' after toggle, got %q", next.mode)
 	}
 
 	// Press 'c' again to switch back to events
@@ -183,14 +166,14 @@ func TestAuditTUIModel_FilterActivation(t *testing.T) {
 	}
 }
 
-func TestAuditTUIModel_FilterInCostModeIgnored(t *testing.T) {
-	m := newAuditTUIModel("/tmp/nonexistent.sock", map[string]interface{}{}, "cost")
+func TestAuditTUIModel_FilterInTokensModeIgnored(t *testing.T) {
+	m := newAuditTUIModel("/tmp/nonexistent.sock", map[string]interface{}{}, "tokens")
 
-	// Press '/' in cost mode should not activate filter
+	// Press '/' in tokens mode should not activate filter
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
 	next := updated.(auditTUIModel)
 	if next.filterActive {
-		t.Fatal("expected filter not activated in cost mode")
+		t.Fatal("expected filter not activated in tokens mode")
 	}
 }
 
@@ -356,16 +339,16 @@ func TestAuditTUIModel_ErrorView(t *testing.T) {
 	}
 }
 
-func TestAuditTUIModel_InitialCostMode(t *testing.T) {
-	m := newAuditTUIModel("/tmp/nonexistent.sock", map[string]interface{}{}, "cost")
+func TestAuditTUIModel_InitialTokensMode(t *testing.T) {
+	m := newAuditTUIModel("/tmp/nonexistent.sock", map[string]interface{}{}, "tokens")
 
-	if m.mode != "cost" {
-		t.Fatalf("expected initial mode 'cost', got %q", m.mode)
+	if m.mode != "tokens" {
+		t.Fatalf("expected initial mode 'tokens', got %q", m.mode)
 	}
 
 	view := m.View()
-	if !strings.Contains(view, "Cost Summary") {
-		t.Fatalf("expected 'Cost Summary' in initial view, got: %s", view)
+	if !strings.Contains(view, "Token Summary") {
+		t.Fatalf("expected 'Token Summary' in initial view, got: %s", view)
 	}
 }
 
@@ -419,7 +402,6 @@ func TestAuditEventsToRows(t *testing.T) {
 			ActionType: audit.ActionAIRequest,
 			Action:     "chat",
 			Outcome:    audit.OutcomeSuccess,
-			CostUSD:    0.025,
 		},
 		{
 			Timestamp:  time.Date(2026, 2, 26, 14, 31, 0, 0, time.UTC),
@@ -433,16 +415,6 @@ func TestAuditEventsToRows(t *testing.T) {
 	rows := auditEventsToRows(events)
 	if len(rows) != 2 {
 		t.Fatalf("expected 2 rows, got %d", len(rows))
-	}
-
-	// AI request should have cost
-	if rows[0][5] != "$0.025" {
-		t.Fatalf("expected cost '$0.025', got %q", rows[0][5])
-	}
-
-	// Tool call should not have cost
-	if rows[1][5] != "" {
-		t.Fatalf("expected empty cost for tool_call, got %q", rows[1][5])
 	}
 
 	// Outcome should use normalized plain-text label.
