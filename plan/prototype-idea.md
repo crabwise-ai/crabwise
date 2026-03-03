@@ -13,7 +13,7 @@ Single Go binary (`crabwise`) — local-first daemon + CLI/TUI that monitors AI 
 
 1. Install one command, immediately see what Claude Code is doing — no config changes
 2. YAML rules like "never run rm -rf" enforced at infrastructure layer, can't be jailbroken
-3. Searchable, exportable audit trail of every agent action with cost tracking
+3. Searchable, exportable audit trail of every agent action with token usage
 4. Warnings on sensitive file access, ability to block destructive commands
 
 ## Key Architecture Decisions
@@ -63,7 +63,7 @@ Each milestone delivers a demo-able user story.
 4. Commandment warn — `.env` access triggers warning in audit
 5. Proxy block — disallowed model denied before reaching provider
 6. Streaming — SSE correct under chunking, disconnect, cancel, timeout
-7. Cost tracking — `crabwise audit --cost` shows spend by agent/day
+7. Token usage — `crabwise audit --tokens` shows input/output tokens by agent/day (cost tracking is a future feature)
 8. Audit integrity — `crabwise audit --verify-integrity` validates chain
 9. Redaction — tested on both audit persistence and proxy egress paths
 10. Performance — benchmark suite confirms all SLOs
@@ -73,7 +73,7 @@ Each milestone delivers a demo-able user story.
 
 1. Module path: `github.com/crabwise-ai/crabwise`
 2. CC logs: M0 gated on fixture capture + anonymization script
-3. Cost pricing: config-driven static pricing, manual update
+3. Cost pricing: deferred — token usage tracked; USD cost calculation is a future feature
 4. OpenClaw: proxy-first only, no log watcher in prototype
 5. Systemd: optional via `crabwise install --service`
 6. License: MIT — single-player open source, team features are future commercial surface

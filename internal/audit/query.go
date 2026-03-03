@@ -25,13 +25,12 @@ type QueryResult struct {
 	Total  int
 }
 
-type CostSummaryRow struct {
-	Day          string  `json:"day"`
-	AgentID      string  `json:"agent_id"`
-	Model        string  `json:"model"`
-	InputTokens  int64   `json:"input_tokens"`
-	OutputTokens int64   `json:"output_tokens"`
-	CostUSD      float64 `json:"cost_usd"`
+type TokenSummaryRow struct {
+	Day          string `json:"day"`
+	AgentID      string `json:"agent_id"`
+	Model        string `json:"model"`
+	InputTokens  int64  `json:"input_tokens"`
+	OutputTokens int64  `json:"output_tokens"`
 }
 
 func QueryEvents(db *sql.DB, f QueryFilter) (*QueryResult, error) {
@@ -169,7 +168,7 @@ func ExportJSON(events []*AuditEvent) ([]byte, error) {
 	return json.MarshalIndent(events, "", "  ")
 }
 
-func QueryCostSummary(db *sql.DB, f QueryFilter) ([]CostSummaryRow, error) {
+func QueryTokenSummary(db *sql.DB, f QueryFilter) ([]TokenSummaryRow, error) {
 	var conditions []string
 	var args []interface{}
 
@@ -186,28 +185,27 @@ func QueryCostSummary(db *sql.DB, f QueryFilter) ([]CostSummaryRow, error) {
 		args = append(args, f.Agent)
 	}
 
-	conditions = append(conditions, "cost_usd IS NOT NULL")
+	conditions = append(conditions, "action_type = 'ai_request'")
 	where := "WHERE " + strings.Join(conditions, " AND ")
 
 	query := `SELECT substr(timestamp, 1, 10) AS day, agent_id, COALESCE(model, '') AS model,
 		COALESCE(SUM(input_tokens), 0) AS input_tokens,
-		COALESCE(SUM(output_tokens), 0) AS output_tokens,
-		COALESCE(SUM(cost_usd), 0) AS cost_usd
+		COALESCE(SUM(output_tokens), 0) AS output_tokens
 		FROM events ` + where + `
 		GROUP BY day, agent_id, model
 		ORDER BY day ASC, agent_id ASC, model ASC`
 
 	rows, err := db.Query(query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("query cost summary: %w", err)
+		return nil, fmt.Errorf("query token summary: %w", err)
 	}
 	defer rows.Close()
 
-	out := []CostSummaryRow{}
+	out := []TokenSummaryRow{}
 	for rows.Next() {
-		var r CostSummaryRow
-		if err := rows.Scan(&r.Day, &r.AgentID, &r.Model, &r.InputTokens, &r.OutputTokens, &r.CostUSD); err != nil {
-			return nil, fmt.Errorf("scan cost summary: %w", err)
+		var r TokenSummaryRow
+		if err := rows.Scan(&r.Day, &r.AgentID, &r.Model, &r.InputTokens, &r.OutputTokens); err != nil {
+			return nil, fmt.Errorf("scan token summary: %w", err)
 		}
 		out = append(out, r)
 	}
