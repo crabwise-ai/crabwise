@@ -45,6 +45,7 @@ type watchModel struct {
 
 	connected bool
 	width     int
+	height    int
 
 	filterMode  bool
 	filterInput textinput.Model
@@ -193,6 +194,7 @@ func newWatchModel(deps watchModelDeps) watchModel {
 		allEvents:   make([]feedEntry, 0, 16),
 		startedAt:   now,
 		width:       80,
+		height:      24,
 		filterInput: ti,
 		deps:        deps,
 	}
@@ -216,6 +218,8 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.width < 40 {
 			m.width = 40
 		}
+		m.height = msg.Height
+		m.rebuildFeed()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -550,9 +554,17 @@ func isTriggeredAuditEvent(evt audit.AuditEvent) bool {
 	return len(triggered) > 0
 }
 
+func (m *watchModel) feedCapacity() int {
+	cap := m.height - 10
+	if cap < 5 {
+		cap = 5
+	}
+	return cap
+}
+
 func (m *watchModel) appendFeed(line string) {
 	m.feed = append([]string{line}, m.feed...)
-	const maxFeed = 12
+	maxFeed := m.feedCapacity()
 	if len(m.feed) > maxFeed {
 		m.feed = m.feed[:maxFeed]
 	}
@@ -561,12 +573,13 @@ func (m *watchModel) appendFeed(line string) {
 func (m *watchModel) rebuildFeed() {
 	m.feed = m.feed[:0]
 	filter := strings.ToLower(m.filterText)
+	maxFeed := m.feedCapacity()
 	for _, entry := range m.allEvents {
 		if filter != "" && !strings.Contains(entry.searchable, filter) {
 			continue
 		}
 		m.feed = append(m.feed, entry.formatted)
-		if len(m.feed) >= 12 {
+		if len(m.feed) >= maxFeed {
 			break
 		}
 	}

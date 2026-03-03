@@ -24,6 +24,7 @@ type agentsTUIModel struct {
 	table      table.Model
 	agents     []discovery.AgentInfo
 	width      int
+	height     int
 	err        error
 }
 
@@ -36,6 +37,7 @@ func newAgentsTUIModel(socketPath string) agentsTUIModel {
 		socketPath: socketPath,
 		table:      t,
 		width:      80,
+		height:     24,
 	}
 }
 
@@ -64,7 +66,13 @@ func (m agentsTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
+		m.height = msg.Height
 		m.table.SetWidth(msg.Width)
+		h := msg.Height - 10
+		if h < 5 {
+			h = 5
+		}
+		m.table.SetHeight(h)
 
 	case agentsLoadedMsg:
 		if msg.err != nil {
