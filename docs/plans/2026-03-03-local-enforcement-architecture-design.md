@@ -76,6 +76,8 @@ PEP flavors:
   In-process library         — embedded PEP for cooperative agents (future)
 ```
 
+Cooperative agents MUST use the in-process PEP. User-visible wrapper configuration is reserved for fallback integrations where no cooperative hook or embedded integration exists.
+
 ### Enforcement protocol
 
 The daemon exposes enforcement as IPC methods:
@@ -243,12 +245,14 @@ HTTP MITM proxy intercepts all LLM API calls. Calls the commandment engine (`sho
 
 #### Tool invocation PEP (new — primary gap closure)
 
-A generic hook that fires before ANY local tool execution, not just shell. The PEP:
+A generic pre-execution enforcement point that fires before ANY local tool execution, not just shell. The PEP:
 
 1. Receives structured tool intent from the agent (name, category, structured targets).
-2. Calls `gate.evaluate` via the Unix socket.
+2. Calls `gate.evaluate` before the tool is dispatched.
 3. If `allow`: proceeds.
-4. If `block`: returns error to agent (non-zero exit code + structured JSON for hook-based integrations).
+4. If `block`: returns error to the agent and the tool is never executed.
+
+This is the primary architecture for local enforcement. Crabwise prevents tool execution by placing a PEP at the tool-dispatch boundary, before any local side effect occurs.
 
 **Implementations (adapters of this PEP):**
 
@@ -260,13 +264,22 @@ A generic hook that fires before ANY local tool execution, not just shell. The P
 
 For Claude Code, the hook is the preferred primary integration because it fires at the agent's tool-intent boundary before any shell interpretation and covers all tool types with a single integration point.
 
-`crab-shell` is an adapter for the shell tool category specifically, useful when hook-based integration is unavailable (e.g., running bare shell scripts via crabwise without a Claude Code hook).
+`crab-shell` is an adapter for the shell tool category specifically, useful when hook-based integration is unavailable. Wrapper-based adapters are fallback integrations only; they are not the preferred user experience for cooperative agents.
 
-#### In-process library PEP (for cooperative open-source agents)
+#### In-process library PEP (required for cooperative agents such as OpenClaw)
 
-For agents where crabwise has deep integration (e.g., OpenClaw), embed a lightweight PDP client as a library. Library makes a function call (no Unix socket round-trip) to evaluate actions. Internally routes to daemon or uses a shared-memory decision cache.
+For agents where Crabwise has deep integration, the PEP MUST be embedded at the agent's internal tool-dispatch boundary. OpenClaw is the reference case for this model.
 
-**When to use:** Performance-critical agents where even 100ms timeout budget is too high. Requires agent cooperation and SDK linking.
+The embedded PEP evaluates tool intent before OpenClaw executes Bash, Write, Edit, Read, or any other local tool. This gives Crabwise true pre-execution enforcement for local actions without requiring shell wrappers, file shims, or other user-visible per-tool configuration.
+
+User experience requirement:
+- OpenClaw users MUST enable Crabwise at the agent level once.
+- OpenClaw users MUST NOT be required to configure `crab-shell`, file-write wrappers, or per-tool path overrides.
+- Local enforcement for OpenClaw MUST feel as simple as existing proxy/Gateway setup: one-time integration, then automatic enforcement.
+
+Wrapper-based PEPs such as `crab-shell` are fallback integrations for non-cooperative agents only. They are not an acceptable primary integration path for OpenClaw.
+
+**When to use:** Performance-critical or deeply integrated agents where Crabwise can participate directly in tool dispatch. Requires agent cooperation and SDK linking.
 
 ---
 
@@ -335,7 +348,23 @@ Emitting for both allowed and blocked actions enables complete pre-exec audit co
 
 ---
 
-## 10. Unresolved Questions
+## 10. Agent Compatibility Matrix
+
+UX #1 (one-time enablement, automatic enforcement for all tools) requires the agent to cooperate. The architecture enables UX #1 for cooperative agents. For non-cooperative agents, the best available enforcement is platform containment (coarse) or partial shims.
+
+| Agent | PEP mechanism | Local enforcement UX | Path to UX #1 |
+|---|---|---|---|
+| OpenClaw | In-process library | #1 — one-time agent-level enable | Requires Crabwise SDK integrated into OpenClaw tool dispatch |
+| Claude Code | `PreToolUse` hook | #1 — `crabwise` writes one hook entry to `~/.claude/settings.json`; covers ALL tool types (Bash, Write, Edit, Read, Glob, etc.) automatically | Already available via hook mechanism |
+| Codex CLI | None today | No UX #1 path — platform containment only (coarse) | Requires Codex to add an external pre-exec hook mechanism OR integrate Crabwise in-process; current `approval_policy` is internal only |
+| Cursor / Copilot | None today | Config provisioning or platform containment | Requires vendor hook/integration or platform containment |
+| Generic/uncooperative | Platform containment | Coarse OS-level safety net only | Agent must add hook support |
+
+**Implication:** `crab-shell` and per-tool wrappers are explicitly NOT the intended path for cooperative agents. They are fallback adapters for cases where no hook or in-process integration exists. Any agent we treat as a first-class integration (OpenClaw, Claude Code) MUST have a one-time enable path with zero per-tool configuration.
+
+---
+
+## 11. Unresolved Questions
 
 1. Should `gate.evaluate` always emit an audit event for `allow` decisions, or only on `block`? (Affects storage volume at high tool-call rates.)
 2. Should `CanEnforce()` be removed from `Adapter` now or kept with a deprecation notice for any external consumers?
