@@ -30,6 +30,7 @@ type commandmentsTUIModel struct {
 	table      table.Model
 	rules      []daemon.CommandmentRuleSummary
 	width      int
+	height     int
 	ruleCount  int
 	reloading  bool
 	reloadMsg  string
@@ -45,6 +46,7 @@ func newCommandmentsTUIModel(socketPath string) commandmentsTUIModel {
 		socketPath: socketPath,
 		table:      t,
 		width:      80,
+		height:     24,
 	}
 }
 
@@ -75,6 +77,12 @@ func (m commandmentsTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
+		m.height = msg.Height
+		h := msg.Height - 10
+		if h < 3 {
+			h = 3
+		}
+		m.table.SetHeight(h)
 
 	case commandmentsLoadedMsg:
 		if msg.err != nil {
@@ -85,7 +93,11 @@ func (m commandmentsTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rules = msg.rules
 		m.ruleCount = len(msg.rules)
 		m.table.SetRows(commandmentsRows(msg.rules))
-		m.table.SetHeight(max(len(msg.rules), 1))
+		h := m.height - 10
+		if h < 3 {
+			h = 3
+		}
+		m.table.SetHeight(h)
 
 	case commandmentsReloadedMsg:
 		m.reloading = false
