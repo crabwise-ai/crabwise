@@ -11,7 +11,7 @@
 
 Every AI agent operates the same way: it sends a prompt to an LLM, the LLM responds with a decision (including any tool calls it wants to make), and the agent acts on that response. Crabwise sits in that loop. The LLM response is the moment of instruction — the point where "run `rm -rf /`" moves from the model's weights into an actionable command. That is the universal enforcement boundary, and Crabwise already owns it via the HTTP proxy.
 
-The primary enforcement strategy is: **evaluate LLM responses before they reach the agent and block harmful tool instructions at the source.** If the agent never receives the instruction, it never executes it. No agent modification. No hooks. No OS-level complexity. Works for every agent that routes through the proxy.
+The primary enforcement strategy is: **evaluate LLM responses before they reach the agent and block harmful tool instructions at the source.** If the agent never receives the instruction, it never executes it. No agent modification. No hooks. No OS-level complexity. Works for every agent that routes through the proxy to a supported provider.
 
 ---
 
@@ -47,7 +47,7 @@ A commandment like `"never run rm -rf"` can warn retroactively but cannot preven
 
 Every agent receives its tool instructions via the LLM response. The proxy is already in that path — it reads and buffers LLM responses for normalization and token counting. It just doesn't evaluate the tool calls *inside* those responses.
 
-Extending the proxy to evaluate `tool_use` blocks in LLM responses before forwarding them gives Crabwise **universal semantic enforcement for local tools** — without touching a single agent, hook, or OS primitive.
+Extending the proxy to evaluate `tool_use` blocks in LLM responses before forwarding them gives Crabwise **semantic enforcement for local tools across all supported providers** — without touching a single agent, hook, or OS primitive.
 
 ```
 Agent  ──── prompt ────►  [PROXY]  ──► LLM API
@@ -73,7 +73,7 @@ The agent either receives a clean response or an error. It never receives an ins
 
 ### Why this is the right primary strategy
 
-- **Universal** — any agent that routes through the proxy gets enforcement, regardless of architecture
+- **Provider-scoped** — any agent routing through the proxy to a supported provider gets enforcement, regardless of agent architecture
 - **Plug-and-play** — no agent modification, no hooks, no OS primitives
 - **Semantic** — evaluates the actual tool intent as the LLM expressed it, with full argument structure
 - **The proxy already buffers responses** — the infrastructure exists; this is an evaluation pass, not a new pipeline
@@ -109,7 +109,7 @@ The agent either receives a clean response or an error. It never receives an ins
               └─────────────────────────────┘
 ```
 
-The commandment engine does not change. The proxy calls it on tool_use blocks extracted from the response, the same way it currently calls it on tool definitions in the request. The enforcement decision is the same: allow or block.
+The commandment engine does not change. The proxy calls it on tool_use blocks extracted from the response, the same way it currently calls it on tool definitions in the request. The enforcement decision is: block (a commandment matched) or pass through (no commandment matched).
 
 ### What "block" means on the response side
 
@@ -143,7 +143,14 @@ This guarantees clean HTTP semantics — the agent receives either a complete va
 
 Text content cannot be safely forwarded before the tool_use decision because the proxy cannot know whether a tool_use block will appear later in the stream. Once bytes are sent with HTTP 200, a subsequent 403 is not possible.
 
-**Buffer size limit:** If the response body exceeds a configurable maximum (default 10 MB), the proxy fails closed (returns error, does not forward partial content).
+**Buffer size limit:** If the response body exceeds a configurable maximum (default 10 MB), the proxy fails closed and returns an error. This is not a policy decision — it is a system/enforcement error. The error response distinguishes these two error classes:
+
+| Situation | HTTP status | `error.type` | Agent interpretation |
+|---|---|---|---|
+| Commandment matched — tool blocked | 403 | `policy_violation` | Do not retry; log and surface to user |
+| Buffer overflow or parse failure | 502 | `enforcement_error` | May retry; not a commandment match |
+
+Agents must not treat `enforcement_error` as evidence of a policy violation. Tooling and UI must surface these separately.
 
 **Future optimization:** Lazy buffering — stream text deltas immediately, buffer only when a tool_use signal is detected, abort the connection on block. This requires the agent to handle a mid-stream connection close as an enforcement event. Not part of v1.
 
@@ -229,7 +236,7 @@ The proxy is both a PEP (it enforces) and owns the boundary (the LLM API respons
 ```
 PEPs by boundary:
 
-  LLM response (universal)  →  Proxy response-side eval  [primary — all agents]
+  LLM response (universal boundary)  →  Proxy response-side eval  [primary — supported providers]
   LLM request               →  Proxy request-side eval   [existing — all agents]
   Per-agent hooks           →  Claude Code PreToolUse     [secondary — CC only]
   OS process boundary       →  Platform containment       [coarse safety net]
@@ -311,7 +318,7 @@ This is a coarse safety net, not a primary enforcement mechanism. It operates at
 | `Transport` interface | Add `ExtractToolUseBlocks(body []byte) ([]ToolUseBlock, error)` for provider-specific parsing |
 | Proxy response normalization | New: parse tool_input arguments into structured targets (argv, paths, etc.) for each tool_use |
 | Commandment engine | Unchanged — proxy calls `evaluator.Evaluate()` with AuditEvents constructed from tool_use blocks |
-| Audit pipeline | Blocked tool_use emits `AuditEvent` with `AdapterType: proxy`, `Outcome: blocked`; allowed emits `Outcome: allowed` |
+| Audit pipeline | Blocked tool_use always emits `AuditEvent` with `AdapterType: proxy`, `Outcome: blocked`. Passed-through tool_use does not emit by default (too high volume — one per LLM call). |
 
 ### Secondary change: `gate.evaluate` IPC method
 
@@ -348,20 +355,20 @@ When the proxy blocks a tool_use from an LLM response:
 
 The agent receives no instruction and executes no tool, so there is no post-hoc logwatcher event. The proxy audit event is the complete and authoritative record.
 
-### Allowed tool_use
+### Passed-through tool_use
 
-When a tool_use is allowed through the proxy, the proxy emits an audit event with `Outcome: allowed`. If the agent subsequently executes the tool and writes JSONL, the logwatcher may emit a separate post-hoc event for the same operation.
+When no commandment blocks a tool_use, the proxy forwards the response without emitting an audit event. Emitting an event for every passed-through tool_use would generate one enforcement-layer event per LLM API call — too high volume for practical audit use.
 
-**These two events cannot be reliably correlated without agent cooperation.** The core requirement — no agent modification — means the proxy cannot inject a correlation ID that the agent will propagate into its JSONL. Attempts to correlate via response headers (`X-Crabwise-Gate-Event-ID`) are aspirational and not guaranteed; agents are not required to read or forward headers into their logs.
+If the agent subsequently executes the tool and writes JSONL, the logwatcher emits its own event (existing behavior). That logwatcher event is the observable record of the passed-through tool execution.
 
-**Design position:** treat the proxy-side event as authoritative for enforcement audit purposes. Logwatcher events are independent observations of the same operation, useful for post-hoc analysis but not for enforcement correlation. The two event streams may be joined heuristically by `(agent_id, model, timestamp_window, tool_name)` but this is best-effort, not guaranteed.
+**Design position:** the enforcement audit record consists of `blocked` events from the proxy. The logwatcher provides post-hoc observation of tool execution for allowed operations. These are separate concerns. The proxy does not attempt to correlate its records with logwatcher records — no agent modification means no reliable correlation handle.
 
 ---
 
 ## 11. Unresolved Questions
 
-1. Block-entire-response vs. redact-blocked-tool_use and forward rest: decided as block-entire for v1, redact is a future mode.
-2. Streaming buffer max size: default 10 MB proposed, fail-closed above limit. Specific value TBD based on observed response sizes in practice.
-3. Should `gate.evaluate` emit audit events for `allow` decisions, or only `block`? (Volume vs. completeness.)
+1. Block-entire-response vs. redact-blocked-tool_use: decided — block-entire for v1; redact is a future mode.
+2. Streaming buffer max size: default 10 MB proposed. Specific value TBD based on observed response sizes.
+3. Audit emit on pass-through: decided — blocked events only; passed-through tool_use does not emit.
 4. Should `CanEnforce()` be removed from `Adapter` now or deprecated with a notice?
-5. Per-tool-name argument parsers (§4): where does this live? What tools need parsers in v1? (At minimum: `Bash`/`computer` for argv, `Write`/`Edit` for paths.)
+5. Per-tool-name argument parsers (§4): what tools need parsers in v1? (At minimum: `Bash`/`computer` for argv, `Write`/`Edit` for paths.)
