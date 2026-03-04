@@ -105,8 +105,44 @@ func (t *OpenAITransport) ParseStreamEvent(data []byte) (StreamEvent, error) {
 	return out, nil
 }
 
-func (t *OpenAITransport) ExtractToolUseBlocks(_ []byte) ([]ToolUseBlock, error) {
-	return nil, nil // real implementation in Task 3
+func (t *OpenAITransport) ExtractToolUseBlocks(body []byte) ([]ToolUseBlock, error) {
+	var resp struct {
+		Choices []struct {
+			Message struct {
+				ToolCalls []struct {
+					ID       string `json:"id"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+	var blocks []ToolUseBlock
+	for _, choice := range resp.Choices {
+		for _, tc := range choice.Message.ToolCalls {
+			rawInput := json.RawMessage(tc.Function.Arguments)
+			// Preserve malformed args as {"_raw_args": "<original>"} for forensic context.
+			if !json.Valid(rawInput) {
+				escaped, _ := json.Marshal(string(rawInput))
+				rawInput = json.RawMessage(`{"_raw_args":` + string(escaped) + `}`)
+			}
+			blocks = append(blocks, ToolUseBlock{
+				ID:        tc.ID,
+				ToolName:  tc.Function.Name,
+				ToolInput: rawInput,
+				Targets:   ParseTargets(tc.Function.Name, rawInput),
+			})
+		}
+	}
+	if len(blocks) == 0 {
+		return nil, nil
+	}
+	return blocks, nil
 }
 
 func toInt64(v interface{}) int64 {
