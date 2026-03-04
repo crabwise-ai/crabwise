@@ -439,6 +439,8 @@ func (d *Daemon) registerIPC() {
 		return audit.QueryTokenSummary(d.store.DB(), filter)
 	})
 
+	RegisterGateEvaluate(d.ipcServer, d.commandments)
+
 	d.ipcServer.HandleSubscribe(func(params json.RawMessage, send func(string, interface{}) error, done <-chan struct{}) error {
 		ch := d.logger.Subscribe()
 		defer d.logger.Unsubscribe(ch)
