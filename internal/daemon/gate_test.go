@@ -23,7 +23,7 @@ func (s *stubCommandments) Test(e *audit.AuditEvent) audit.EvalResult { return s
 func (s *stubCommandments) Reload() (int, error)            { return 0, nil }
 
 func TestGateEvaluateHandler_Block(t *testing.T) {
-	handler := makeGateEvaluateHandler(&stubCommandments{})
+	handler := makeGateEvaluateHandler(&stubCommandments{}, func(e *audit.AuditEvent) {})
 	params, _ := json.Marshal(GateEvaluateParams{
 		AgentID:      "claude-code",
 		ToolName:     "Bash",
@@ -47,7 +47,7 @@ func TestGateEvaluateHandler_Block(t *testing.T) {
 }
 
 func TestGateEvaluateHandler_Pass(t *testing.T) {
-	handler := makeGateEvaluateHandler(&stubCommandments{})
+	handler := makeGateEvaluateHandler(&stubCommandments{}, func(e *audit.AuditEvent) {})
 	params, _ := json.Marshal(GateEvaluateParams{
 		AgentID:  "claude-code",
 		ToolName: "Read",
@@ -68,7 +68,7 @@ func TestGateEvaluateHandler_TargetsMappedToArguments(t *testing.T) {
 		capturedEvent = e
 		return audit.EvalResult{}
 	}}
-	handler := makeGateEvaluateHandler(svc)
+	handler := makeGateEvaluateHandler(svc, func(e *audit.AuditEvent) {})
 	params, _ := json.Marshal(GateEvaluateParams{
 		AgentID:  "claude-code",
 		ToolName: "Bash",

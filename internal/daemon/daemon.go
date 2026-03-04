@@ -439,7 +439,9 @@ func (d *Daemon) registerIPC() {
 		return audit.QueryTokenSummary(d.store.DB(), filter)
 	})
 
-	RegisterGateEvaluate(d.ipcServer, d.commandments)
+	RegisterGateEvaluate(d.ipcServer, d.commandments, func(e *audit.AuditEvent) {
+		d.eventCh <- e
+	})
 
 	d.ipcServer.HandleSubscribe(func(params json.RawMessage, send func(string, interface{}) error, done <-chan struct{}) error {
 		ch := d.logger.Subscribe()
@@ -652,6 +654,7 @@ func (d *Daemon) proxyConfig() proxy.Config {
 		DefaultProvider:     d.cfg.Adapters.Proxy.DefaultProvider,
 		UpstreamTimeout:     d.cfg.Adapters.Proxy.UpstreamTimeout.Duration(),
 		StreamIdleTimeout:   d.cfg.Adapters.Proxy.StreamIdleTimeout.Duration(),
+		StreamMaxBuffer:     d.cfg.Adapters.Proxy.StreamMaxBuffer,
 		MaxRequestBody:      d.cfg.Adapters.Proxy.MaxRequestBody,
 		RedactEgressDefault: d.cfg.Adapters.Proxy.RedactEgressDefault,
 		RedactPatterns:      d.cfg.Adapters.Proxy.RedactPatterns,

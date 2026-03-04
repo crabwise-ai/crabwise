@@ -75,6 +75,7 @@ type ProxyConfig struct {
 	DefaultProvider     string                         `yaml:"default_provider"`
 	UpstreamTimeout     Duration                       `yaml:"upstream_timeout"`
 	StreamIdleTimeout   Duration                       `yaml:"stream_idle_timeout"`
+	StreamMaxBuffer     int64                          `yaml:"stream_max_buffer"` // max bytes to buffer SSE stream; 0 = default 10MB
 	MaxRequestBody      int64                          `yaml:"max_request_body"`
 	RedactEgressDefault bool                           `yaml:"redact_egress_default"`
 	RedactPatterns      []string                       `yaml:"redact_patterns"`
