@@ -105,6 +105,10 @@ func (t *OpenAITransport) ParseStreamEvent(data []byte) (StreamEvent, error) {
 	return out, nil
 }
 
+func (t *OpenAITransport) ExtractToolUseBlocks(_ []byte) ([]ToolUseBlock, error) {
+	return nil, nil // real implementation in Task 3
+}
+
 func toInt64(v interface{}) int64 {
 	switch x := v.(type) {
 	case float64:
