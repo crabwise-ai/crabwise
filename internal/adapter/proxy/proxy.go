@@ -576,6 +576,54 @@ func (p *Proxy) shouldBlock(event *audit.AuditEvent) bool {
 	return false
 }
 
+// evaluateToolUseBlocks evaluates each tool_use block from an LLM response.
+// Returns (true, commandmentID) if any block is blocked; emits audit events for blocked blocks.
+// Returns (false, "") if all pass. Pass-through events are not emitted (too high volume).
+func (p *Proxy) evaluateToolUseBlocks(blocks []ToolUseBlock, provider, model string, ts time.Time) (bool, string) {
+	if p.evaluator == nil {
+		return false, ""
+	}
+	for _, block := range blocks {
+		argKeys := classify.ExtractArgKeys(block.ToolInput)
+		var cls classify.ClassifyResult
+		if p.classifier != nil {
+			cls = p.classifier.Classify(provider, block.ToolName, argKeys)
+		}
+
+		e := &audit.AuditEvent{
+			ID:                   uuid.NewString(),
+			Timestamp:            ts,
+			AgentID:              "proxy",
+			ActionType:           audit.ActionToolCall,
+			Action:               block.ToolName,
+			Provider:             provider,
+			Model:                model,
+			ToolName:             block.ToolName,
+			ToolCategory:         cls.Category,
+			ToolEffect:           cls.Effect,
+			TaxonomyVersion:      cls.TaxonomyVersion,
+			ClassificationSource: cls.ClassificationSource,
+			AdapterID:            "proxy",
+			AdapterType:          "proxy",
+		}
+		p.appendArgumentMetadata(e, map[string]interface{}{
+			"tool_call_id": block.ID,
+			"tool_input":   block.ToolInput,
+			"targets":      block.Targets,
+		})
+
+		result := p.evaluator.Evaluate(e)
+		for _, triggered := range result.Triggered {
+			if strings.EqualFold(triggered.Enforcement, "block") {
+				e.Outcome = audit.OutcomeBlocked
+				p.emit(e)
+				return true, triggered.Name
+			}
+		}
+	}
+	return false, ""
+}
+
 func (p *Proxy) emit(e *audit.AuditEvent) {
 	if p.events == nil || e == nil {
 		return
