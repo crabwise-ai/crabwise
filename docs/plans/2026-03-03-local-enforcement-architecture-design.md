@@ -266,20 +266,31 @@ For Claude Code, the hook is the preferred primary integration because it fires 
 
 `crab-shell` is an adapter for the shell tool category specifically, useful when hook-based integration is unavailable. Wrapper-based adapters are fallback integrations only; they are not the preferred user experience for cooperative agents.
 
-#### In-process library PEP (required for cooperative agents such as OpenClaw)
+#### In-process / Gateway PEP (for cooperative agents such as OpenClaw)
 
-For agents where Crabwise has deep integration, the PEP MUST be embedded at the agent's internal tool-dispatch boundary. OpenClaw is the reference case for this model.
+For agents where Crabwise has deep integration, the PEP sits at the agent's tool-dispatch boundary. OpenClaw is the reference case. Two paths exist:
 
-The embedded PEP evaluates tool intent before OpenClaw executes Bash, Write, Edit, Read, or any other local tool. This gives Crabwise true pre-execution enforcement for local actions without requiring shell wrappers, file shims, or other user-visible per-tool configuration.
+**Path A — Gateway-mediated approval (preferred for OpenClaw)**
 
-User experience requirement:
-- OpenClaw users MUST enable Crabwise at the agent level once.
-- OpenClaw users MUST NOT be required to configure `crab-shell`, file-write wrappers, or per-tool path overrides.
-- Local enforcement for OpenClaw MUST feel as simple as existing proxy/Gateway setup: one-time integration, then automatic enforcement.
+OpenClaw's Gateway already emits `exec.started` and `exec.completed` events. The enforcement extension adds a synchronous pre-exec step:
 
-Wrapper-based PEPs such as `crab-shell` are fallback integrations for non-cooperative agents only. They are not an acceptable primary integration path for OpenClaw.
+1. OpenClaw is about to execute a tool → Gateway emits `exec.pending`
+2. Crabwise (connected as `operator.enforce`) receives the event, calls `gate.evaluate`
+3. Crabwise sends `exec.approve` or `exec.deny` to the Gateway
+4. Gateway tells OpenClaw to proceed or reject — tool is never executed if denied
 
-**When to use:** Performance-critical or deeply integrated agents where Crabwise can participate directly in tool dispatch. Requires agent cooperation and SDK linking.
+This mirrors the proxy pattern: the Gateway becomes the enforcement bus, keeping policy evaluation in crabwise and enforcement at the Gateway boundary. Requires extending the OpenClaw Gateway protocol but no SDK embedding.
+
+**Path B — In-process SDK**
+
+OpenClaw imports a crabwise client library and calls `gate.evaluate` at its internal tool-dispatch boundary before executing any tool. No Gateway protocol changes needed. Requires OpenClaw to add the dependency and call the SDK explicitly.
+
+User experience requirement (both paths):
+- OpenClaw users enable Crabwise as an operator once (config flag or `operator.enforce` scope grant).
+- OpenClaw users are NEVER required to configure `crab-shell`, file-write wrappers, or per-tool path overrides.
+- Local enforcement feels identical to existing proxy/Gateway setup: one-time integration, then automatic enforcement across all tool types.
+
+Wrapper-based PEPs such as `crab-shell` are fallback integrations for non-cooperative agents only.
 
 ---
 
@@ -354,7 +365,7 @@ UX #1 (one-time enablement, automatic enforcement for all tools) requires the ag
 
 | Agent | PEP mechanism | Local enforcement UX | Path to UX #1 |
 |---|---|---|---|
-| OpenClaw | In-process library | #1 — one-time agent-level enable | Requires Crabwise SDK integrated into OpenClaw tool dispatch |
+| OpenClaw | Gateway-mediated pre-exec approval (preferred) or in-process SDK | #1 — one-time: enable crabwise as `operator.enforce`-scoped operator in OpenClaw config | OpenClaw Gateway extends existing `exec.started` protocol with a synchronous `exec.pending` + approve/deny flow; crabwise responds via Gateway. Alternatively, OpenClaw imports crabwise SDK and calls `gate.evaluate` in-process before tool dispatch. |
 | Claude Code | `PreToolUse` hook | #1 — `crabwise` writes one hook entry to `~/.claude/settings.json`; covers ALL tool types (Bash, Write, Edit, Read, Glob, etc.) automatically | Already available via hook mechanism |
 | Codex CLI | None today | No UX #1 path — platform containment only (coarse) | Requires Codex to add an external pre-exec hook mechanism OR integrate Crabwise in-process; current `approval_policy` is internal only |
 | Cursor / Copilot | None today | Config provisioning or platform containment | Requires vendor hook/integration or platform containment |
