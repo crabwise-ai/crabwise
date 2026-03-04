@@ -124,17 +124,30 @@ Block-response is the default. Redact-tool_use is a future refinement for cases 
 
 ### Streaming responses
 
-LLM responses are often streamed via SSE. Evaluating tool_use blocks requires buffering enough of the stream to reconstruct them before forwarding.
+LLM responses are often streamed via SSE. Tool_use blocks arrive as fragmented delta events that must be reassembled before evaluation. This imposes a buffering requirement with a specific latency contract.
 
-**Strategy:**
-- Buffer stream until tool_use blocks are complete (they arrive in full JSON chunks in most providers)
-- Evaluate buffered tool_use blocks against commandments
-- If clean: begin forwarding buffered content, then stream remainder in real-time
-- If blocked: discard buffer, return error
+**v1 contract — full pre-buffer:**
 
-**Latency impact:** Added delay equals time-to-first-tool-use-block in the stream, typically less than full response generation time. Text content before any tool call is buffered but not delayed to the user since we evaluate the tool_use when it appears.
+The proxy buffers the entire streaming response body before forwarding anything to the agent. Once the stream ends (or a tool_use block is fully reconstructed), the proxy evaluates all tool_use blocks:
+- If all allowed: forward the buffered response body to the agent (as a complete response, not re-streamed)
+- If any blocked: discard the buffer, return HTTP 403
 
-The proxy already has streaming infrastructure (`proxySSEStream`). This extends it with an evaluation pass.
+This guarantees clean HTTP semantics — the agent receives either a complete valid response or an unambiguous error. The latency cost is full response generation time for any response containing tool calls.
+
+**Why tool-call arguments arrive in fragments (provider-specific):**
+
+| Provider | Tool-use signal in stream | Argument delivery |
+|---|---|---|
+| OpenAI-compatible | `delta.tool_calls[].function.name` in first chunk | Arguments accumulate as string fragments across subsequent chunks; complete at `finish_reason: "tool_calls"` |
+| Anthropic native | `content_block_start` with `type: tool_use` | Arguments accumulate via `content_block_delta` with `input_json_delta`; complete at `content_block_stop` |
+
+Text content cannot be safely forwarded before the tool_use decision because the proxy cannot know whether a tool_use block will appear later in the stream. Once bytes are sent with HTTP 200, a subsequent 403 is not possible.
+
+**Buffer size limit:** If the response body exceeds a configurable maximum (default 10 MB), the proxy fails closed (returns error, does not forward partial content).
+
+**Future optimization:** Lazy buffering — stream text deltas immediately, buffer only when a tool_use signal is detected, abort the connection on block. This requires the agent to handle a mid-stream connection close as an enforcement event. Not part of v1.
+
+The proxy already has streaming infrastructure (`proxySSEStream`). Response-side enforcement replaces its pass-through behavior with the pre-buffer strategy described above.
 
 ---
 
@@ -146,34 +159,55 @@ The proxy evaluates the prompt and tool definitions before forwarding to the LLM
 
 ### Response side (new)
 
-The proxy evaluates each `tool_use` block in the LLM response before forwarding. For each tool call:
+The proxy evaluates each `tool_use` block in the LLM response before forwarding. The commandment engine evaluation interface (`Evaluate(*audit.AuditEvent)`) is unchanged — the engine consumes the same `AuditEvent` schema. What changes is the proxy's response processing layer, which must:
+
+1. **Extract** `tool_use` blocks from the LLM response (provider-specific parsing)
+2. **Classify** tool intent using the existing classifier (same path as request-side tool definitions)
+3. **Normalize** tool_input arguments into structured targets
+
+For each extracted tool call:
 
 | Field | Source | Use |
 |---|---|---|
-| `tool_name` | LLM response | e.g., `"Bash"`, `"Write"`, `"computer"` |
+| `tool_name` | LLM response `tool_use.name` | e.g., `"Bash"`, `"Write"`, `"computer"` |
 | `tool_category` | Classifier (existing) | e.g., `"shell"`, `"file_write"` |
 | `tool_effect` | Classifier (existing) | e.g., `"write"`, `"delete"` |
-| `arguments` | LLM response | Raw args as the LLM structured them |
-| `targets.paths` | Parsed from args | File paths the tool will affect |
-| `targets.argv` | Parsed from args | Shell command argv (for bash tools) |
+| `tool_input` | LLM response `tool_use.input` | Raw args as the LLM structured them |
+| `targets.paths` | Parsed from `tool_input` | File paths the tool will affect |
+| `targets.argv` | Parsed from `tool_input` | Shell command argv (for bash tools) |
 
-This is richer than request-side evaluation: the proxy sees not just "this agent has the bash tool" but "this agent is about to run `rm -rf /tmp/project` with this specific argv."
+Steps 1–3 are new proxy-layer code. The `AuditEvent` produced by this normalization flows into `evaluator.Evaluate()` unchanged. This is richer than request-side evaluation: the proxy sees not just "this agent has the bash tool" but "this agent is about to run `rm -rf /tmp/project` with this specific argv."
+
+The structured targets schema (step 3) requires per-tool-name argument parsers. These live in the proxy, not the engine. A `Bash` tool parser extracts `argv` from the `command` field; a `Write` tool parser extracts paths from the `path` field, etc.
 
 ---
 
 ## 5. Agent Compatibility
 
-**Any agent that routes through the Crabwise proxy gets response-side enforcement automatically.** No agent modification, no install step beyond pointing the agent at the proxy.
+**Any agent that routes through the Crabwise proxy to a supported provider gets response-side enforcement automatically.** No agent modification, no install step beyond pointing the agent at the proxy.
 
 | Agent | Proxy-based local enforcement | How |
 |---|---|---|
-| Claude Code | Yes | `HTTPS_PROXY` + Crabwise CA cert. One-time setup. |
-| Codex CLI | Yes | Same. |
-| OpenClaw | Yes | Same. |
-| Cursor | Yes | Same. |
-| Any LLM API client | Yes | Same. |
+| Claude Code | Yes (v1) | `HTTPS_PROXY` + Crabwise CA cert. One-time setup. Uses OpenAI-compatible transport. |
+| Codex CLI | Yes (v1) | Same. |
+| OpenClaw | Yes (v1) | Same. |
+| Cursor | Yes (v1) | Same. |
+| Any OpenAI-compatible client | Yes (v1) | Same. |
+| Anthropic-native clients | Planned (v2) | Requires Anthropic transport with `content_block_*` event parsing. |
 
-This is the key property of the proxy enforcement model: it is agent-agnostic by design.
+This is the key property of the proxy enforcement model: enforcement is in the proxy, not the agent.
+
+### Provider scope for v1
+
+Response-side enforcement requires provider-specific tool-call extraction. "Universal" means universal within supported providers, not all possible LLM APIs.
+
+| Provider | Streaming tool-use format | v1 support |
+|---|---|---|
+| OpenAI / OpenAI-compatible | `delta.tool_calls[].function.{name,arguments}` fragments | Yes |
+| Anthropic native | `content_block_start/delta/stop` with `type: tool_use` | v2 |
+| Gemini | `candidates[].content.parts[].functionCall` objects | v2+ |
+
+Each provider requires a corresponding `Transport` implementation that knows how to reconstruct complete tool_use intents from that provider's streaming format. The enforcement contract — evaluate before forward — is provider-agnostic. The parsing is not.
 
 ### What the proxy cannot cover
 
@@ -272,10 +306,12 @@ This is a coarse safety net, not a primary enforcement mechanism. It operates at
 
 | Item | Change |
 |---|---|
-| `proxy.handleProxy` | After receiving LLM response, parse and evaluate `tool_use` blocks before forwarding |
-| `proxy.proxySSEStream` | Buffer stream to identify tool_use blocks; evaluate before forwarding chunk |
-| Commandment engine | Unchanged — proxy calls same evaluation path for response-side tool_use |
-| Audit pipeline | Blocked tool_use in response emits `AuditEvent` with `AdapterType: proxy`, `Outcome: blocked` |
+| `proxy.handleProxy` | After receiving LLM response, extract and evaluate `tool_use` blocks before forwarding |
+| `proxy.proxySSEStream` | Replace pass-through with pre-buffer strategy; forward only after tool_use evaluation |
+| `Transport` interface | Add `ExtractToolUseBlocks(body []byte) ([]ToolUseBlock, error)` for provider-specific parsing |
+| Proxy response normalization | New: parse tool_input arguments into structured targets (argv, paths, etc.) for each tool_use |
+| Commandment engine | Unchanged — proxy calls `evaluator.Evaluate()` with AuditEvents constructed from tool_use blocks |
+| Audit pipeline | Blocked tool_use emits `AuditEvent` with `AdapterType: proxy`, `Outcome: blocked`; allowed emits `Outcome: allowed` |
 
 ### Secondary change: `gate.evaluate` IPC method
 
@@ -296,7 +332,7 @@ This is a coarse safety net, not a primary enforcement mechanism. It operates at
 
 ---
 
-## 10. Audit and Correlation
+## 10. Audit
 
 ### Blocked tool_use in LLM response
 
@@ -304,27 +340,28 @@ When the proxy blocks a tool_use from an LLM response:
 
 | Field | Value |
 |---|---|
-| `ID` | New UUID (correlation handle) |
+| `ID` | New UUID |
 | `ActionType` | Tool category (e.g., `shell`, `file_write`) |
 | `Outcome` | `blocked` |
 | `AdapterType` | `proxy` |
-| `Arguments` | Includes tool name, structured targets, commandment ID, reason |
+| `Arguments` | Tool name, structured targets, commandment ID, reason |
 
-The agent receives no instruction and executes no tool, so there is no post-hoc logwatcher event to correlate. The audit event is the complete record.
+The agent receives no instruction and executes no tool, so there is no post-hoc logwatcher event. The proxy audit event is the complete and authoritative record.
 
 ### Allowed tool_use
 
-When a tool_use is allowed through the proxy and the agent executes it, two events exist:
-1. Proxy response evaluation: `gate_event_id` assigned, `Outcome: allowed`
-2. Logwatcher post-hoc event (if agent writes JSONL)
+When a tool_use is allowed through the proxy, the proxy emits an audit event with `Outcome: allowed`. If the agent subsequently executes the tool and writes JSONL, the logwatcher may emit a separate post-hoc event for the same operation.
 
-Correlation: the proxy embeds `gate_event_id` in a response header (`X-Crabwise-Gate-Event-ID`) that the agent can optionally include in its JSONL for linkage. Without it, the two events are independent observations.
+**These two events cannot be reliably correlated without agent cooperation.** The core requirement — no agent modification — means the proxy cannot inject a correlation ID that the agent will propagate into its JSONL. Attempts to correlate via response headers (`X-Crabwise-Gate-Event-ID`) are aspirational and not guaranteed; agents are not required to read or forward headers into their logs.
+
+**Design position:** treat the proxy-side event as authoritative for enforcement audit purposes. Logwatcher events are independent observations of the same operation, useful for post-hoc analysis but not for enforcement correlation. The two event streams may be joined heuristically by `(agent_id, model, timestamp_window, tool_name)` but this is best-effort, not guaranteed.
 
 ---
 
 ## 11. Unresolved Questions
 
-1. Should the proxy block the entire response when any tool_use is blocked, or attempt to redact just the blocked tool_use and forward the rest? (Default: block entire response.)
-2. For streaming responses: what is the maximum acceptable buffer size before the proxy must make a decision and either forward or abort?
-3. Should `gate.evaluate` emit audit events for `allow` decisions, or only `block`? (Volume vs. completeness tradeoff.)
+1. Block-entire-response vs. redact-blocked-tool_use and forward rest: decided as block-entire for v1, redact is a future mode.
+2. Streaming buffer max size: default 10 MB proposed, fail-closed above limit. Specific value TBD based on observed response sizes in practice.
+3. Should `gate.evaluate` emit audit events for `allow` decisions, or only `block`? (Volume vs. completeness.)
 4. Should `CanEnforce()` be removed from `Adapter` now or deprecated with a notice?
+5. Per-tool-name argument parsers (§4): where does this live? What tools need parsers in v1? (At minimum: `Bash`/`computer` for argv, `Write`/`Edit` for paths.)
