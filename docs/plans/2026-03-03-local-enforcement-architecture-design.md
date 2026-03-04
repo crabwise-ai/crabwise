@@ -266,35 +266,9 @@ For Claude Code, the hook is the preferred primary integration because it fires 
 
 `crab-shell` is an adapter for the shell tool category specifically, useful when hook-based integration is unavailable. Wrapper-based adapters are fallback integrations only; they are not the preferred user experience for cooperative agents.
 
-#### In-process / Gateway PEP (for cooperative agents such as OpenClaw)
-
-For agents where Crabwise has deep integration, the PEP sits at the agent's tool-dispatch boundary. OpenClaw is the reference case. Two paths exist:
-
-**Path A — Gateway-mediated approval (preferred for OpenClaw)**
-
-OpenClaw's Gateway already emits `exec.started` and `exec.completed` events. The enforcement extension adds a synchronous pre-exec step:
-
-1. OpenClaw is about to execute a tool → Gateway emits `exec.pending`
-2. Crabwise (connected as `operator.enforce`) receives the event, calls `gate.evaluate`
-3. Crabwise sends `exec.approve` or `exec.deny` to the Gateway
-4. Gateway tells OpenClaw to proceed or reject — tool is never executed if denied
-
-This mirrors the proxy pattern: the Gateway becomes the enforcement bus, keeping policy evaluation in crabwise and enforcement at the Gateway boundary. Requires extending the OpenClaw Gateway protocol but no SDK embedding.
-
-**Path B — In-process SDK**
-
-OpenClaw imports a crabwise client library and calls `gate.evaluate` at its internal tool-dispatch boundary before executing any tool. No Gateway protocol changes needed. Requires OpenClaw to add the dependency and call the SDK explicitly.
-
-User experience requirement (both paths):
-- OpenClaw users enable Crabwise as an operator once (config flag or `operator.enforce` scope grant).
-- OpenClaw users are NEVER required to configure `crab-shell`, file-write wrappers, or per-tool path overrides.
-- Local enforcement feels identical to existing proxy/Gateway setup: one-time integration, then automatic enforcement across all tool types.
-
-Wrapper-based PEPs such as `crab-shell` are fallback integrations for non-cooperative agents only.
-
 ---
 
-### Tier 2 — Platform-specific containment (safety net, not primary enforcement)
+### Tier 2 — Platform-specific containment (primary enforcement for agents without hook support)
 
 For uncooperative or closed-source agents with no hook mechanism: platform-specific containment backends apply coarse hard limits. These are **not a coherent portable PEP** — each platform requires a separate implementation:
 
@@ -326,8 +300,7 @@ For SaaS-style agents with their own native policy controls, crabwise acts as th
 | Item | Change |
 |---|---|
 | IPC server | Add `gate.evaluate` JSON-RPC method with structured `targets` schema |
-| New: Tool invocation PEP | Generic hook adapter + Claude Code `PreToolUse` integration as first impl |
-| New binary: `crab-shell` | Shell-specific adapter of the tool invocation PEP |
+| New: Claude Code hook PEP | `crabwise install --agent claude-code` writes `PreToolUse` hook to `~/.claude/settings.json`; hook calls `gate.evaluate` before every tool |
 | `CanEnforce()` on `Adapter` | Deprecate — adapters are observers/translators; PEPs are the enforcement layer |
 | Docs | PEP/PDP model for adapter contributors |
 
@@ -361,17 +334,22 @@ Emitting for both allowed and blocked actions enables complete pre-exec audit co
 
 ## 10. Agent Compatibility Matrix
 
-UX #1 (one-time enablement, automatic enforcement for all tools) requires the agent to cooperate. The architecture enables UX #1 for cooperative agents. For non-cooperative agents, the best available enforcement is platform containment (coarse) or partial shims.
+Crabwise is a third-party product. It cannot modify agent source code or require agent vendors to build in Crabwise support. Every enforcement path must be achievable through existing user-facing configuration mechanisms the agent already exposes — or through OS-level containment that wraps the agent process externally.
 
-| Agent | PEP mechanism | Local enforcement UX | Path to UX #1 |
+| Agent | Local enforcement path | UX | Notes |
 |---|---|---|---|
-| OpenClaw | Gateway-mediated pre-exec approval (preferred) or in-process SDK | #1 — one-time: enable crabwise as `operator.enforce`-scoped operator in OpenClaw config | OpenClaw Gateway extends existing `exec.started` protocol with a synchronous `exec.pending` + approve/deny flow; crabwise responds via Gateway. Alternatively, OpenClaw imports crabwise SDK and calls `gate.evaluate` in-process before tool dispatch. |
-| Claude Code | `PreToolUse` hook | #1 — `crabwise` writes one hook entry to `~/.claude/settings.json`; covers ALL tool types (Bash, Write, Edit, Read, Glob, etc.) automatically | Already available via hook mechanism |
-| Codex CLI | None today | No UX #1 path — platform containment only (coarse) | Requires Codex to add an external pre-exec hook mechanism OR integrate Crabwise in-process; current `approval_policy` is internal only |
-| Cursor / Copilot | None today | Config provisioning or platform containment | Requires vendor hook/integration or platform containment |
-| Generic/uncooperative | Platform containment | Coarse OS-level safety net only | Agent must add hook support |
+| Claude Code | `PreToolUse` hook — written by `crabwise install` to `~/.claude/settings.json` | **One-time setup.** Covers ALL CC tool types (Bash, Write, Edit, Read, Glob, etc.) automatically | Uses a config mechanism Claude Code already provides. Not a source modification. |
+| OpenClaw | OS-level containment (`crabwise run openclaw`) | Coarse safety net today | OpenClaw Gateway emits `exec.started`/`exec.completed` (post-hoc, read-only). No pre-exec hook mechanism is exposed externally. Semantic enforcement requires OpenClaw to add external hook support — that is a vendor decision, not something Crabwise can do unilaterally. |
+| Codex CLI | OS-level containment (`crabwise run codex`) | Coarse safety net today | No external pre-exec hook. `approval_policy` is internal only. Same constraint as OpenClaw. |
+| Any agent (API calls) | HTTP proxy (`HTTPS_PROXY`) | **One-time setup.** Already implemented. | Universal — any agent that honors proxy env vars. Blocks API calls only. |
+| Any agent (local tools) | OS-level containment | Coarse | `crabwise run <agent>` wraps the agent launch. Agent-agnostic but not semantic. |
 
-**Implication:** `crab-shell` and per-tool wrappers are explicitly NOT the intended path for cooperative agents. They are fallback adapters for cases where no hook or in-process integration exists. Any agent we treat as a first-class integration (OpenClaw, Claude Code) MUST have a one-time enable path with zero per-tool configuration.
+**Future vendor integration paths** (require agent vendor to build in support — not a Crabwise-only decision):
+- OpenClaw: extend Gateway protocol with synchronous `exec.pending` + approve/deny. Crabwise responds as `operator.enforce`. Achieves semantic UX #1 for OpenClaw without source embedding.
+- Codex CLI: expose external pre-exec hook (similar to Claude Code's `PreToolUse`). Crabwise writes hook config at install time.
+- Any agent: publish a Crabwise SDK that agents can optionally integrate for in-process `gate.evaluate` calls.
+
+**Implication for product:** Local enforcement quality is determined by what each agent exposes. Today, only Claude Code offers a plug-and-play path to semantic pre-exec enforcement for local tools. All other agents fall back to coarse OS containment until their vendors add external hook support.
 
 ---
 
