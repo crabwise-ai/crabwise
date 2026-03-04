@@ -364,14 +364,46 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 	var firstTokenAt time.Time
 
 	if normalizedReq.Stream || strings.Contains(contentType, "text/event-stream") {
-		sendUpstreamHeaders(upstreamResp.StatusCode)
-
-		streamTel, streamErr := proxySSEStream(w, upstreamResp.Body, providerRuntime.Transport, p.cfg.StreamIdleTimeout)
-		if streamErr != nil {
-			p.metrics.UpstreamErrors.Add(1)
-			normResp.ErrorType = "stream_error"
-			normResp.ErrorMessage = streamErr.Error()
+		maxBuf := p.cfg.StreamMaxBuffer
+		if maxBuf <= 0 {
+			maxBuf = defaultStreamMaxBytes
 		}
+		buffered, streamErr := bufferSSEStream(upstreamResp.Body, providerRuntime.Transport, p.cfg.StreamIdleTimeout, maxBuf)
+		if streamErr != nil {
+			if strings.Contains(streamErr.Error(), "stream buffer exceeded") || strings.Contains(streamErr.Error(), "enforcement_error") {
+				writeProxyError(w, http.StatusBadGateway, "enforcement_error", streamErr.Error(), eventID)
+			} else {
+				p.metrics.UpstreamErrors.Add(1)
+				writeProxyError(w, http.StatusBadGateway, "upstream_error", streamErr.Error(), eventID)
+			}
+			preflight.Outcome = audit.OutcomeFailure
+			p.emit(preflight)
+			return
+		}
+
+		// Evaluate tool_use blocks from the buffered stream
+		if blocked, commandmentID := p.evaluateToolUseBlocks(buffered.ToolBlocks, providerName, normalizedReq.Model, start); blocked {
+			p.metrics.TotalBlocked.Add(1)
+			writeProxyError(w, http.StatusForbidden, "policy_violation",
+				"tool_use blocked by commandment: "+commandmentID, eventID)
+			preflight.Outcome = audit.OutcomeBlocked
+			p.appendArgumentMetadata(preflight, map[string]interface{}{
+				"blocked_commandment": commandmentID,
+				"enforcement":         "response_side_stream",
+			})
+			p.emit(preflight)
+			return
+		}
+
+		// Forward buffered stream to client
+		sendUpstreamHeaders(upstreamResp.StatusCode)
+		if _, err := w.Write(buffered.Body); err != nil {
+			p.metrics.UpstreamErrors.Add(1)
+		}
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		streamTel := buffered.Telemetry
 		normResp.InputTokens = streamTel.InputTokens
 		normResp.OutputTokens = streamTel.OutputTokens
 		normResp.FinishReason = streamTel.FinishReason
