@@ -386,6 +386,31 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 			normResp.ErrorType = "read_error"
 			normResp.ErrorMessage = readErr.Error()
 		}
+
+		// Response-side tool_use enforcement (non-streaming)
+		if len(respBody) > 0 && upstreamResp.StatusCode < 400 {
+			toolUseBlocks, extractErr := providerRuntime.Transport.ExtractToolUseBlocks(respBody)
+			if extractErr != nil {
+				writeProxyError(w, http.StatusBadGateway, "enforcement_error",
+					"failed to extract tool_use blocks: "+extractErr.Error(), eventID)
+				preflight.Outcome = audit.OutcomeFailure
+				p.emit(preflight)
+				return
+			}
+			if blocked, commandmentID := p.evaluateToolUseBlocks(toolUseBlocks, providerName, normalizedReq.Model, start); blocked {
+				p.metrics.TotalBlocked.Add(1)
+				writeProxyError(w, http.StatusForbidden, "policy_violation",
+					"tool_use blocked by commandment: "+commandmentID, eventID)
+				preflight.Outcome = audit.OutcomeBlocked
+				p.appendArgumentMetadata(preflight, map[string]interface{}{
+					"blocked_commandment": commandmentID,
+					"enforcement":         "response_side",
+				})
+				p.emit(preflight)
+				return
+			}
+		}
+
 		if len(respBody) > 0 {
 			responseMapped, respMapErr := NormalizeResponse(providerRuntime.Mapping, respBody, upstreamResp.StatusCode)
 			if respMapErr != nil {
