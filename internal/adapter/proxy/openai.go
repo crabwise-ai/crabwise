@@ -99,6 +99,32 @@ func (t *OpenAITransport) ParseStreamEvent(data []byte) (StreamEvent, error) {
 				out.FinishReason = fr
 				out.HasFinish = true
 			}
+			if delta, ok := c0["delta"].(map[string]interface{}); ok {
+				if rawCalls, ok := delta["tool_calls"].([]interface{}); ok {
+					for _, rawCall := range rawCalls {
+						call, ok := rawCall.(map[string]interface{})
+						if !ok {
+							continue
+						}
+						d := ToolCallDelta{}
+						if idx, ok := call["index"]; ok {
+							d.Index = int(toInt64(idx))
+						}
+						if id, ok := call["id"].(string); ok {
+							d.ID = id
+						}
+						if fn, ok := call["function"].(map[string]interface{}); ok {
+							if name, ok := fn["name"].(string); ok {
+								d.Name = name
+							}
+							if args, ok := fn["arguments"].(string); ok {
+								d.ArgsDelta = args
+							}
+						}
+						out.ToolCallDeltas = append(out.ToolCallDeltas, d)
+					}
+				}
+			}
 		}
 	}
 
