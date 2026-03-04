@@ -103,6 +103,9 @@ func (m *mockStreamTransport) ParseStreamEvent(_ []byte) (StreamEvent, error) {
 	}
 	return StreamEvent{}, nil
 }
+func (m *mockStreamTransport) ExtractToolUseBlocks(_ []byte) ([]ToolUseBlock, error) {
+	return nil, nil
+}
 
 // sseRecorder wraps httptest.ResponseRecorder with http.Flusher support.
 type sseRecorder struct {
@@ -151,6 +154,9 @@ func (m *malformedJSONTransport) Forward(_ context.Context, _ *http.Request) (*h
 func (m *malformedJSONTransport) ParseStreamEvent(_ []byte) (StreamEvent, error) {
 	return StreamEvent{}, errors.New("invalid JSON")
 }
+func (m *malformedJSONTransport) ExtractToolUseBlocks(_ []byte) ([]ToolUseBlock, error) {
+	return nil, nil
+}
 
 // eventTypeCapture is a Transport stub for event type propagation tests.
 type eventTypeCapture struct{}
@@ -161,6 +167,9 @@ func (e *eventTypeCapture) Forward(_ context.Context, _ *http.Request) (*http.Re
 }
 func (e *eventTypeCapture) ParseStreamEvent(_ []byte) (StreamEvent, error) {
 	return StreamEvent{Model: "gpt-4o"}, nil
+}
+func (e *eventTypeCapture) ExtractToolUseBlocks(_ []byte) ([]ToolUseBlock, error) {
+	return nil, nil
 }
 
 // ---------------------------------------------------------------------------
