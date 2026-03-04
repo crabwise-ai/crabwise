@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -81,7 +80,7 @@ func TestParseSSEEventType(t *testing.T) {
 // torture suite helpers
 // ---------------------------------------------------------------------------
 
-// mockStreamTransport implements Transport for testing proxySSEStream.
+// mockStreamTransport implements Transport for testing bufferSSEStream.
 // Only ParseStreamEvent is meaningful; PrepareAuth and Forward are stubs.
 type mockStreamTransport struct {
 	mu     sync.Mutex
@@ -105,43 +104,6 @@ func (m *mockStreamTransport) ParseStreamEvent(_ []byte) (StreamEvent, error) {
 }
 func (m *mockStreamTransport) ExtractToolUseBlocks(_ []byte) ([]ToolUseBlock, error) {
 	return nil, nil
-}
-
-// sseRecorder wraps httptest.ResponseRecorder with http.Flusher support.
-type sseRecorder struct {
-	*httptest.ResponseRecorder
-	mu      sync.Mutex
-	flushed int
-}
-
-func newSSERecorder() *sseRecorder {
-	return &sseRecorder{ResponseRecorder: httptest.NewRecorder()}
-}
-
-func (r *sseRecorder) Flush() {
-	r.mu.Lock()
-	r.flushed++
-	r.mu.Unlock()
-}
-
-// errorAfterNWriter returns an error after N successful writes.
-type errorAfterNWriter struct {
-	inner    http.ResponseWriter
-	maxWrite int
-	writes   int
-	mu       sync.Mutex
-}
-
-func (w *errorAfterNWriter) Header() http.Header       { return w.inner.Header() }
-func (w *errorAfterNWriter) WriteHeader(statusCode int) { w.inner.WriteHeader(statusCode) }
-func (w *errorAfterNWriter) Write(data []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.writes++
-	if w.writes > w.maxWrite {
-		return 0, errors.New("client disconnected")
-	}
-	return w.inner.Write(data)
 }
 
 // malformedJSONTransport always returns parse error.
@@ -176,7 +138,7 @@ func (e *eventTypeCapture) ExtractToolUseBlocks(_ []byte) ([]ToolUseBlock, error
 // torture test cases
 // ---------------------------------------------------------------------------
 
-func TestProxySSEStream_NormalFlow(t *testing.T) {
+func TestBufferSSEStream_NormalFlow(t *testing.T) {
 	tr := &mockStreamTransport{
 		events: []StreamEvent{
 			{Model: "gpt-4o"},
@@ -186,13 +148,12 @@ func TestProxySSEStream_NormalFlow(t *testing.T) {
 	}
 
 	pr, pw := io.Pipe()
-	rec := newSSERecorder()
 
 	done := make(chan struct{})
-	var tel streamTelemetry
+	var result bufferedSSEResult
 	var sErr error
 	go func() {
-		tel, sErr = proxySSEStream(rec, pr, tr, 5*time.Second)
+		result, sErr = bufferSSEStream(pr, tr, 5*time.Second, defaultStreamMaxBytes)
 		close(done)
 	}()
 
@@ -210,8 +171,9 @@ func TestProxySSEStream_NormalFlow(t *testing.T) {
 	<-done
 
 	if sErr != nil {
-		t.Fatalf("proxySSEStream error: %v", sErr)
+		t.Fatalf("bufferSSEStream error: %v", sErr)
 	}
+	tel := result.Telemetry
 	if tel.Model != "gpt-4o" {
 		t.Fatalf("expected model gpt-4o, got %q", tel.Model)
 	}
@@ -224,24 +186,23 @@ func TestProxySSEStream_NormalFlow(t *testing.T) {
 	if tel.FirstTokenAt.IsZero() {
 		t.Fatal("expected FirstTokenAt to be set")
 	}
-	if !strings.Contains(rec.Body.String(), "chunk") {
-		t.Fatalf("expected recorder to contain chunk data, got %q", rec.Body.String())
+	if !strings.Contains(string(result.Body), "chunk") {
+		t.Fatalf("expected body to contain chunk data, got %q", string(result.Body))
 	}
 }
 
-func TestProxySSEStream_PartialChunks(t *testing.T) {
+func TestBufferSSEStream_PartialChunks(t *testing.T) {
 	tr := &mockStreamTransport{
 		events: []StreamEvent{{Model: "gpt-4o"}},
 	}
 
 	pr, pw := io.Pipe()
-	rec := newSSERecorder()
 
 	done := make(chan struct{})
-	var tel streamTelemetry
+	var result bufferedSSEResult
 	var sErr error
 	go func() {
-		tel, sErr = proxySSEStream(rec, pr, tr, 5*time.Second)
+		result, sErr = bufferSSEStream(pr, tr, 5*time.Second, defaultStreamMaxBytes)
 		close(done)
 	}()
 
@@ -253,14 +214,14 @@ func TestProxySSEStream_PartialChunks(t *testing.T) {
 	<-done
 
 	if sErr != nil {
-		t.Fatalf("proxySSEStream error: %v", sErr)
+		t.Fatalf("bufferSSEStream error: %v", sErr)
 	}
-	if tel.Model != "gpt-4o" {
-		t.Fatalf("expected model gpt-4o, got %q", tel.Model)
+	if result.Telemetry.Model != "gpt-4o" {
+		t.Fatalf("expected model gpt-4o, got %q", result.Telemetry.Model)
 	}
 }
 
-func TestProxySSEStream_MultiEventChunk(t *testing.T) {
+func TestBufferSSEStream_MultiEventChunk(t *testing.T) {
 	tr := &mockStreamTransport{
 		events: []StreamEvent{
 			{Model: "gpt-4o"},
@@ -269,13 +230,12 @@ func TestProxySSEStream_MultiEventChunk(t *testing.T) {
 	}
 
 	pr, pw := io.Pipe()
-	rec := newSSERecorder()
 
 	done := make(chan struct{})
-	var tel streamTelemetry
+	var result bufferedSSEResult
 	var sErr error
 	go func() {
-		tel, sErr = proxySSEStream(rec, pr, tr, 5*time.Second)
+		result, sErr = bufferSSEStream(pr, tr, 5*time.Second, defaultStreamMaxBytes)
 		close(done)
 	}()
 
@@ -284,23 +244,23 @@ func TestProxySSEStream_MultiEventChunk(t *testing.T) {
 	<-done
 
 	if sErr != nil {
-		t.Fatalf("proxySSEStream error: %v", sErr)
+		t.Fatalf("bufferSSEStream error: %v", sErr)
 	}
-	if tel.FinishReason != "stop" {
-		t.Fatalf("expected finish_reason stop, got %q", tel.FinishReason)
+	if result.Telemetry.FinishReason != "stop" {
+		t.Fatalf("expected finish_reason stop, got %q", result.Telemetry.FinishReason)
 	}
 }
 
-func TestProxySSEStream_EmptyKeepAlive(t *testing.T) {
+func TestBufferSSEStream_EmptyKeepAlive(t *testing.T) {
 	tr := &mockStreamTransport{}
 
 	pr, pw := io.Pipe()
-	rec := newSSERecorder()
 
 	done := make(chan struct{})
+	var result bufferedSSEResult
 	var sErr error
 	go func() {
-		_, sErr = proxySSEStream(rec, pr, tr, 5*time.Second)
+		result, sErr = bufferSSEStream(pr, tr, 5*time.Second, defaultStreamMaxBytes)
 		close(done)
 	}()
 
@@ -312,23 +272,23 @@ func TestProxySSEStream_EmptyKeepAlive(t *testing.T) {
 	<-done
 
 	if sErr != nil {
-		t.Fatalf("proxySSEStream error: %v", sErr)
+		t.Fatalf("bufferSSEStream error: %v", sErr)
 	}
-	if !strings.Contains(rec.Body.String(), "keep-alive") {
-		t.Fatal("expected keep-alive comments to be passed through")
+	if !strings.Contains(string(result.Body), "keep-alive") {
+		t.Fatal("expected keep-alive comments to be buffered")
 	}
 }
 
-func TestProxySSEStream_MalformedJSON(t *testing.T) {
+func TestBufferSSEStream_MalformedJSON(t *testing.T) {
+	// bufferSSEStream fails closed on parse errors — expect an error.
 	tr := &malformedJSONTransport{}
 
 	pr, pw := io.Pipe()
-	rec := newSSERecorder()
 
 	done := make(chan struct{})
 	var sErr error
 	go func() {
-		_, sErr = proxySSEStream(rec, pr, tr, 5*time.Second)
+		_, sErr = bufferSSEStream(pr, tr, 5*time.Second, defaultStreamMaxBytes)
 		close(done)
 	}()
 
@@ -337,21 +297,23 @@ func TestProxySSEStream_MalformedJSON(t *testing.T) {
 	pw.Close()
 	<-done
 
-	if sErr != nil {
-		t.Fatalf("expected no error for malformed JSON, got: %v", sErr)
+	if sErr == nil {
+		t.Fatal("expected enforcement_error for malformed JSON (fail-closed), got nil")
+	}
+	if !strings.Contains(sErr.Error(), "enforcement_error") {
+		t.Fatalf("expected enforcement_error, got: %v", sErr)
 	}
 }
 
-func TestProxySSEStream_UpstreamTimeout(t *testing.T) {
+func TestBufferSSEStream_UpstreamTimeout(t *testing.T) {
 	tr := &mockStreamTransport{}
 
 	pr, _ := io.Pipe() // never write, never close
-	rec := newSSERecorder()
 
 	done := make(chan struct{})
 	var sErr error
 	go func() {
-		_, sErr = proxySSEStream(rec, pr, tr, 100*time.Millisecond)
+		_, sErr = bufferSSEStream(pr, tr, 100*time.Millisecond, defaultStreamMaxBytes)
 		close(done)
 	}()
 
@@ -365,48 +327,40 @@ func TestProxySSEStream_UpstreamTimeout(t *testing.T) {
 	}
 }
 
-func TestProxySSEStream_ClientDisconnect(t *testing.T) {
-	tr := &mockStreamTransport{
-		events: []StreamEvent{{Model: "gpt-4o"}, {Model: "gpt-4o"}},
-	}
+func TestBufferSSEStream_BufferOverflow(t *testing.T) {
+	tr := &mockStreamTransport{}
 
 	pr, pw := io.Pipe()
-	errWriter := &errorAfterNWriter{
-		inner:    newSSERecorder(),
-		maxWrite: 1, // fail on second write
-	}
 
 	done := make(chan struct{})
 	var sErr error
 	go func() {
-		_, sErr = proxySSEStream(errWriter, pr, tr, 5*time.Second)
+		_, sErr = bufferSSEStream(pr, tr, 5*time.Second, 10) // tiny 10-byte limit
 		close(done)
 	}()
 
-	pw.Write([]byte("data: {\"a\":1}\n"))
-	time.Sleep(20 * time.Millisecond)
-	pw.Write([]byte("data: {\"b\":2}\n"))
+	pw.Write([]byte("data: {\"a\":1}\n")) // 14 bytes > 10
 	pw.Close()
 	<-done
 
 	if sErr == nil {
-		t.Fatal("expected write error from client disconnect")
+		t.Fatal("expected buffer overflow error")
 	}
-	if !strings.Contains(sErr.Error(), "client disconnected") {
-		t.Fatalf("expected client disconnected error, got: %v", sErr)
+	if !strings.Contains(sErr.Error(), "stream buffer exceeded") {
+		t.Fatalf("expected stream buffer exceeded error, got: %v", sErr)
 	}
 }
 
-func TestProxySSEStream_EventTypeField(t *testing.T) {
+func TestBufferSSEStream_EventTypeField(t *testing.T) {
 	tr := &eventTypeCapture{}
 
 	pr, pw := io.Pipe()
-	rec := newSSERecorder()
 
 	done := make(chan struct{})
+	var result bufferedSSEResult
 	var sErr error
 	go func() {
-		_, sErr = proxySSEStream(rec, pr, tr, 5*time.Second)
+		result, sErr = bufferSSEStream(pr, tr, 5*time.Second, defaultStreamMaxBytes)
 		close(done)
 	}()
 
@@ -417,9 +371,9 @@ func TestProxySSEStream_EventTypeField(t *testing.T) {
 	<-done
 
 	if sErr != nil {
-		t.Fatalf("proxySSEStream error: %v", sErr)
+		t.Fatalf("bufferSSEStream error: %v", sErr)
 	}
-	if !strings.Contains(rec.Body.String(), "event: response.done") {
-		t.Fatal("expected event type line to be written to client")
+	if !strings.Contains(string(result.Body), "event: response.done") {
+		t.Fatal("expected event type line to be buffered")
 	}
 }

@@ -20,6 +20,7 @@ type Config struct {
 	DefaultProvider     string
 	UpstreamTimeout     time.Duration
 	StreamIdleTimeout   time.Duration
+	StreamMaxBuffer     int64 // max bytes to buffer for streaming enforcement; 0 = default 10MB
 	MaxRequestBody      int64
 	RedactEgressDefault bool
 	CACert              string
