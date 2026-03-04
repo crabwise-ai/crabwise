@@ -37,7 +37,7 @@ type GateEvaluateResult struct {
 }
 
 // makeGateEvaluateHandler returns an ipc.Handler for the gate.evaluate method.
-func makeGateEvaluateHandler(svc CommandmentsService) ipc.Handler {
+func makeGateEvaluateHandler(svc CommandmentsService, emit func(*audit.AuditEvent)) ipc.Handler {
 	return func(raw json.RawMessage) (interface{}, error) {
 		var params GateEvaluateParams
 		if err := json.Unmarshal(raw, &params); err != nil {
@@ -71,8 +71,7 @@ func makeGateEvaluateHandler(svc CommandmentsService) ipc.Handler {
 		for _, triggered := range result.Triggered {
 			if strings.EqualFold(triggered.Enforcement, "block") {
 				e.Outcome = audit.OutcomeBlocked
-				// Note: gate.evaluate emitter wiring is caller's responsibility.
-				// Blocked gate events must be emitted; pass-through events are not emitted.
+				emit(e)
 				return GateEvaluateResult{
 					GateEventID:   eventID,
 					Decision:      "block",
@@ -92,6 +91,6 @@ func makeGateEvaluateHandler(svc CommandmentsService) ipc.Handler {
 }
 
 // RegisterGateEvaluate wires the gate.evaluate handler onto the IPC server.
-func RegisterGateEvaluate(srv *ipc.Server, svc CommandmentsService) {
-	srv.Handle("gate.evaluate", makeGateEvaluateHandler(svc))
+func RegisterGateEvaluate(srv *ipc.Server, svc CommandmentsService, emit func(*audit.AuditEvent)) {
+	srv.Handle("gate.evaluate", makeGateEvaluateHandler(svc, emit))
 }
