@@ -39,6 +39,7 @@ type Proxy struct {
 	cfg        Config
 	evaluator  Evaluator
 	classifier classify.Classifier
+	hotMu      sync.RWMutex // protects evaluator + classifier (hot-reloaded on SIGHUP)
 	events     chan<- *audit.AuditEvent
 	attributor RequestAttributor
 
@@ -54,13 +55,18 @@ type Proxy struct {
 }
 
 func (p *Proxy) SetEvaluator(e Evaluator) {
+	p.hotMu.Lock()
 	p.evaluator = e
+	p.hotMu.Unlock()
 }
 
 func (p *Proxy) SetClassifier(c classify.Classifier) {
-	if c != nil {
-		p.classifier = c
+	if c == nil {
+		return
 	}
+	p.hotMu.Lock()
+	p.classifier = c
+	p.hotMu.Unlock()
 }
 
 func (p *Proxy) SetRequestAttributor(a RequestAttributor) {
@@ -382,7 +388,7 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Evaluate tool_use blocks from the buffered stream
-		if blocked, commandmentID := p.evaluateToolUseBlocks(buffered.ToolBlocks, providerName, normalizedReq.Model, start); blocked {
+		if blocked, commandmentID := p.evaluateToolUseBlocks(buffered.ToolBlocks, providerName, normalizedReq.Model); blocked {
 			p.metrics.TotalBlocked.Add(1)
 			writeProxyError(w, http.StatusForbidden, "policy_violation",
 				"tool_use blocked by commandment: "+commandmentID, eventID)
@@ -432,7 +438,7 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 				p.emit(preflight)
 				return
 			}
-			if blocked, commandmentID := p.evaluateToolUseBlocks(toolUseBlocks, providerName, normalizedReq.Model, start); blocked {
+			if blocked, commandmentID := p.evaluateToolUseBlocks(toolUseBlocks, providerName, normalizedReq.Model); blocked {
 				p.metrics.TotalBlocked.Add(1)
 				writeProxyError(w, http.StatusForbidden, "policy_violation",
 					"tool_use blocked by commandment: "+commandmentID, eventID)
@@ -464,12 +470,12 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 				}
 			} else {
 				sendUpstreamHeaders(upstreamResp.StatusCode)
+				normResp = responseMapped
+				normResp.MappingDegraded = mappingDegraded
 				if _, writeErr := w.Write(respBody); writeErr != nil {
 					normResp.ErrorType = "write_error"
 					normResp.ErrorMessage = writeErr.Error()
 				}
-				normResp = responseMapped
-				normResp.MappingDegraded = mappingDegraded
 			}
 		} else {
 			sendUpstreamHeaders(upstreamResp.StatusCode)
@@ -553,10 +559,11 @@ func (p *Proxy) normalizeRequest(runtime *ProviderRuntime, provider, endpoint st
 		return normalized, true, err
 	}
 
+	cls := p.getClassifier()
 	for i := range normalized.Tools {
 		tool := &normalized.Tools[i]
 		argKeys := classify.ExtractArgKeys(tool.RawArgs)
-		result := p.classifier.Classify(provider, tool.Name, argKeys)
+		result := cls.Classify(provider, tool.Name, argKeys)
 		tool.ArgKeys = argKeys
 		tool.Category = result.Category
 		tool.Effect = result.Effect
@@ -629,11 +636,26 @@ func (p *Proxy) buildAuditEvent(eventID string, ts time.Time, provider string, r
 	return e
 }
 
+func (p *Proxy) getEvaluator() Evaluator {
+	p.hotMu.RLock()
+	e := p.evaluator
+	p.hotMu.RUnlock()
+	return e
+}
+
+func (p *Proxy) getClassifier() classify.Classifier {
+	p.hotMu.RLock()
+	c := p.classifier
+	p.hotMu.RUnlock()
+	return c
+}
+
 func (p *Proxy) shouldBlock(event *audit.AuditEvent) bool {
-	if p.evaluator == nil || event == nil {
+	eval := p.getEvaluator()
+	if eval == nil || event == nil {
 		return false
 	}
-	result := p.evaluator.Evaluate(event)
+	result := eval.Evaluate(event)
 	for _, triggered := range result.Triggered {
 		if strings.EqualFold(triggered.Enforcement, "block") {
 			return true
@@ -645,30 +667,32 @@ func (p *Proxy) shouldBlock(event *audit.AuditEvent) bool {
 // evaluateToolUseBlocks evaluates each tool_use block from an LLM response.
 // Returns (true, commandmentID) if any block is blocked; emits audit events for blocked blocks.
 // Returns (false, "") if all pass. Pass-through events are not emitted (too high volume).
-func (p *Proxy) evaluateToolUseBlocks(blocks []ToolUseBlock, provider, model string, ts time.Time) (bool, string) {
-	if p.evaluator == nil {
+func (p *Proxy) evaluateToolUseBlocks(blocks []ToolUseBlock, provider, model string) (bool, string) {
+	eval := p.getEvaluator()
+	if eval == nil {
 		return false, ""
 	}
+	cls := p.getClassifier()
 	for _, block := range blocks {
 		argKeys := classify.ExtractArgKeys(block.ToolInput)
-		var cls classify.ClassifyResult
-		if p.classifier != nil {
-			cls = p.classifier.Classify(provider, block.ToolName, argKeys)
+		var clsResult classify.ClassifyResult
+		if cls != nil {
+			clsResult = cls.Classify(provider, block.ToolName, argKeys)
 		}
 
 		e := &audit.AuditEvent{
 			ID:                   uuid.NewString(),
-			Timestamp:            ts,
+			Timestamp:            time.Now().UTC(),
 			AgentID:              "proxy",
 			ActionType:           audit.ActionToolCall,
 			Action:               block.ToolName,
 			Provider:             provider,
 			Model:                model,
 			ToolName:             block.ToolName,
-			ToolCategory:         cls.Category,
-			ToolEffect:           cls.Effect,
-			TaxonomyVersion:      cls.TaxonomyVersion,
-			ClassificationSource: cls.ClassificationSource,
+			ToolCategory:         clsResult.Category,
+			ToolEffect:           clsResult.Effect,
+			TaxonomyVersion:      clsResult.TaxonomyVersion,
+			ClassificationSource: clsResult.ClassificationSource,
 			AdapterID:            "proxy",
 			AdapterType:          "proxy",
 		}
@@ -678,7 +702,7 @@ func (p *Proxy) evaluateToolUseBlocks(blocks []ToolUseBlock, provider, model str
 			"targets":      block.Targets,
 		})
 
-		result := p.evaluator.Evaluate(e)
+		result := eval.Evaluate(e)
 		for _, triggered := range result.Triggered {
 			if strings.EqualFold(triggered.Enforcement, "block") {
 				e.Outcome = audit.OutcomeBlocked

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 )
@@ -37,7 +38,7 @@ type bufferedSSEResult struct {
 // Returns an error if body exceeds maxBytes or an idle timeout occurs.
 // Fails closed on parse errors (returns error rather than silently skipping deltas).
 func bufferSSEStream(src io.ReadCloser, transport Transport, idleTimeout time.Duration, maxBytes int64) (bufferedSSEResult, error) {
-	defer src.Close()
+	// Caller owns src.Close() — do not close here (avoids double-close).
 
 	if idleTimeout <= 0 {
 		idleTimeout = 30 * time.Second
@@ -84,9 +85,15 @@ func bufferSSEStream(src io.ReadCloser, transport Transport, idleTimeout time.Du
 			return result, fmt.Errorf("stream idle timeout")
 		case msg, ok := <-lines:
 			if !ok {
-				// Channel closed = stream ended; finalize tool blocks
+				// Channel closed = stream ended; finalize tool blocks in index order.
+				indices := make([]int, 0, len(accumulators))
+				for idx := range accumulators {
+					indices = append(indices, idx)
+				}
+				sort.Ints(indices)
 				result.ToolBlocks = make([]ToolUseBlock, 0, len(accumulators))
-				for _, acc := range accumulators {
+				for _, idx := range indices {
+					acc := accumulators[idx]
 					rawInput := json.RawMessage(acc.args.String())
 					if !json.Valid(rawInput) {
 						escaped, _ := json.Marshal(acc.args.String())
