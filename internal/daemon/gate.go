@@ -47,8 +47,11 @@ func makeGateEvaluateHandler(svc CommandmentsService, emit func(*audit.AuditEven
 		eventID := uuid.NewString()
 
 		// Map targets into Arguments so argument-sensitive commandment rules can fire.
+		// "command" reconstructs argv as a space-joined string so regex patterns
+		// like "rm\s+-rf" match the same way they do against shell command strings.
 		targetsJSON, _ := json.Marshal(map[string]interface{}{
 			"argv":      params.Targets.Argv,
+			"command":   strings.Join(params.Targets.Argv, " "),
 			"paths":     params.Targets.Paths,
 			"path_mode": params.Targets.PathMode,
 		})
