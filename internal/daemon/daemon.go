@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -40,6 +41,7 @@ type Daemon struct {
 	registry      *discovery.Registry
 	watcher       *logwatcher.LogWatcher
 	proxy         *proxy.Proxy
+	openclawMu    sync.RWMutex
 	openclaw      *openclaw.Adapter
 	openclawState *openclawstate.Store
 	commandments  CommandmentsService
@@ -439,6 +441,10 @@ func (d *Daemon) registerIPC() {
 		return audit.QueryTokenSummary(d.store.DB(), filter)
 	})
 
+	RegisterGateEvaluate(d.ipcServer, d.commandments, func(e *audit.AuditEvent) {
+		d.eventCh <- e
+	})
+
 	d.ipcServer.HandleSubscribe(func(params json.RawMessage, send func(string, interface{}) error, done <-chan struct{}) error {
 		ch := d.logger.Subscribe()
 		defer d.logger.Unsubscribe(ch)
@@ -564,7 +570,9 @@ func (d *Daemon) startOpenClaw(ctx context.Context) error {
 	if err := adapter.Start(ctx, d.eventCh); err != nil {
 		return err
 	}
+	d.openclawMu.Lock()
 	d.openclaw = adapter
+	d.openclawMu.Unlock()
 	return nil
 }
 
@@ -604,9 +612,12 @@ func (d *Daemon) statusSnapshot() map[string]interface{} {
 			resp[k] = v
 		}
 	}
-	if d.openclaw != nil && d.openclaw.Connected() {
+	d.openclawMu.RLock()
+	oc := d.openclaw
+	d.openclawMu.RUnlock()
+	if oc != nil && oc.Connected() {
 		resp["openclaw_connected"] = float64(1)
-		resp["openclaw_session_cache_size"] = float64(d.openclaw.SessionCacheSize())
+		resp["openclaw_session_cache_size"] = float64(oc.SessionCacheSize())
 	}
 	if d.openclawState != nil {
 		stats := d.openclawState.Stats()
@@ -650,6 +661,7 @@ func (d *Daemon) proxyConfig() proxy.Config {
 		DefaultProvider:     d.cfg.Adapters.Proxy.DefaultProvider,
 		UpstreamTimeout:     d.cfg.Adapters.Proxy.UpstreamTimeout.Duration(),
 		StreamIdleTimeout:   d.cfg.Adapters.Proxy.StreamIdleTimeout.Duration(),
+		StreamMaxBuffer:     d.cfg.Adapters.Proxy.StreamMaxBuffer,
 		MaxRequestBody:      d.cfg.Adapters.Proxy.MaxRequestBody,
 		RedactEgressDefault: d.cfg.Adapters.Proxy.RedactEgressDefault,
 		RedactPatterns:      d.cfg.Adapters.Proxy.RedactPatterns,

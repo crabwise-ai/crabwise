@@ -364,14 +364,48 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 	var firstTokenAt time.Time
 
 	if normalizedReq.Stream || strings.Contains(contentType, "text/event-stream") {
-		sendUpstreamHeaders(upstreamResp.StatusCode)
-
-		streamTel, streamErr := proxySSEStream(w, upstreamResp.Body, providerRuntime.Transport, p.cfg.StreamIdleTimeout)
-		if streamErr != nil {
-			p.metrics.UpstreamErrors.Add(1)
-			normResp.ErrorType = "stream_error"
-			normResp.ErrorMessage = streamErr.Error()
+		maxBuf := p.cfg.StreamMaxBuffer
+		if maxBuf <= 0 {
+			maxBuf = defaultStreamMaxBytes
 		}
+		buffered, streamErr := bufferSSEStream(upstreamResp.Body, providerRuntime.Transport, p.cfg.StreamIdleTimeout, maxBuf)
+		if streamErr != nil {
+			if strings.Contains(streamErr.Error(), "stream buffer exceeded") || strings.Contains(streamErr.Error(), "enforcement_error") {
+				writeProxyError(w, http.StatusBadGateway, "enforcement_error", streamErr.Error(), eventID)
+			} else {
+				p.metrics.UpstreamErrors.Add(1)
+				writeProxyError(w, http.StatusBadGateway, "upstream_error", streamErr.Error(), eventID)
+			}
+			preflight.Outcome = audit.OutcomeFailure
+			p.emit(preflight)
+			return
+		}
+
+		// Evaluate tool_use blocks from the buffered stream
+		if blocked, commandmentID := p.evaluateToolUseBlocks(buffered.ToolBlocks, providerName, normalizedReq.Model, start); blocked {
+			p.metrics.TotalBlocked.Add(1)
+			writeProxyError(w, http.StatusForbidden, "policy_violation",
+				"tool_use blocked by commandment: "+commandmentID, eventID)
+			preflight.Outcome = audit.OutcomeBlocked
+			p.appendArgumentMetadata(preflight, map[string]interface{}{
+				"blocked_commandment": commandmentID,
+				"enforcement":         "response_side_stream",
+			})
+			p.emit(preflight)
+			return
+		}
+
+		// Forward buffered stream to client
+		sendUpstreamHeaders(upstreamResp.StatusCode)
+		if _, err := w.Write(buffered.Body); err != nil {
+			p.metrics.UpstreamErrors.Add(1)
+			normResp.ErrorType = "write_error"
+			normResp.ErrorMessage = err.Error()
+		}
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		streamTel := buffered.Telemetry
 		normResp.InputTokens = streamTel.InputTokens
 		normResp.OutputTokens = streamTel.OutputTokens
 		normResp.FinishReason = streamTel.FinishReason
@@ -386,6 +420,32 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 			normResp.ErrorType = "read_error"
 			normResp.ErrorMessage = readErr.Error()
 		}
+
+		// Response-side tool_use enforcement (non-streaming, JSON only).
+		// Skip binary/audio/text responses — ExtractToolUseBlocks requires JSON.
+		if len(respBody) > 0 && upstreamResp.StatusCode < 400 && strings.Contains(contentType, "application/json") {
+			toolUseBlocks, extractErr := providerRuntime.Transport.ExtractToolUseBlocks(respBody)
+			if extractErr != nil {
+				writeProxyError(w, http.StatusBadGateway, "enforcement_error",
+					"failed to extract tool_use blocks: "+extractErr.Error(), eventID)
+				preflight.Outcome = audit.OutcomeFailure
+				p.emit(preflight)
+				return
+			}
+			if blocked, commandmentID := p.evaluateToolUseBlocks(toolUseBlocks, providerName, normalizedReq.Model, start); blocked {
+				p.metrics.TotalBlocked.Add(1)
+				writeProxyError(w, http.StatusForbidden, "policy_violation",
+					"tool_use blocked by commandment: "+commandmentID, eventID)
+				preflight.Outcome = audit.OutcomeBlocked
+				p.appendArgumentMetadata(preflight, map[string]interface{}{
+					"blocked_commandment": commandmentID,
+					"enforcement":         "response_side",
+				})
+				p.emit(preflight)
+				return
+			}
+		}
+
 		if len(respBody) > 0 {
 			responseMapped, respMapErr := NormalizeResponse(providerRuntime.Mapping, respBody, upstreamResp.StatusCode)
 			if respMapErr != nil {
@@ -397,11 +457,17 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 					writeProxyError(w, http.StatusBadGateway, "mapping_error", normResp.ErrorMessage, eventID)
 				} else {
 					sendUpstreamHeaders(upstreamResp.StatusCode)
-					_, _ = w.Write(respBody)
+					if _, writeErr := w.Write(respBody); writeErr != nil {
+						normResp.ErrorType = "write_error"
+						normResp.ErrorMessage = writeErr.Error()
+					}
 				}
 			} else {
 				sendUpstreamHeaders(upstreamResp.StatusCode)
-				_, _ = w.Write(respBody)
+				if _, writeErr := w.Write(respBody); writeErr != nil {
+					normResp.ErrorType = "write_error"
+					normResp.ErrorMessage = writeErr.Error()
+				}
 				normResp = responseMapped
 				normResp.MappingDegraded = mappingDegraded
 			}
@@ -574,6 +640,54 @@ func (p *Proxy) shouldBlock(event *audit.AuditEvent) bool {
 		}
 	}
 	return false
+}
+
+// evaluateToolUseBlocks evaluates each tool_use block from an LLM response.
+// Returns (true, commandmentID) if any block is blocked; emits audit events for blocked blocks.
+// Returns (false, "") if all pass. Pass-through events are not emitted (too high volume).
+func (p *Proxy) evaluateToolUseBlocks(blocks []ToolUseBlock, provider, model string, ts time.Time) (bool, string) {
+	if p.evaluator == nil {
+		return false, ""
+	}
+	for _, block := range blocks {
+		argKeys := classify.ExtractArgKeys(block.ToolInput)
+		var cls classify.ClassifyResult
+		if p.classifier != nil {
+			cls = p.classifier.Classify(provider, block.ToolName, argKeys)
+		}
+
+		e := &audit.AuditEvent{
+			ID:                   uuid.NewString(),
+			Timestamp:            ts,
+			AgentID:              "proxy",
+			ActionType:           audit.ActionToolCall,
+			Action:               block.ToolName,
+			Provider:             provider,
+			Model:                model,
+			ToolName:             block.ToolName,
+			ToolCategory:         cls.Category,
+			ToolEffect:           cls.Effect,
+			TaxonomyVersion:      cls.TaxonomyVersion,
+			ClassificationSource: cls.ClassificationSource,
+			AdapterID:            "proxy",
+			AdapterType:          "proxy",
+		}
+		p.appendArgumentMetadata(e, map[string]interface{}{
+			"tool_call_id": block.ID,
+			"tool_input":   block.ToolInput,
+			"targets":      block.Targets,
+		})
+
+		result := p.evaluator.Evaluate(e)
+		for _, triggered := range result.Triggered {
+			if strings.EqualFold(triggered.Enforcement, "block") {
+				e.Outcome = audit.OutcomeBlocked
+				p.emit(e)
+				return true, triggered.Name
+			}
+		}
+	}
+	return false, ""
 }
 
 func (p *Proxy) emit(e *audit.AuditEvent) {

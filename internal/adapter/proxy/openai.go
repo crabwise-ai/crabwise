@@ -99,10 +99,76 @@ func (t *OpenAITransport) ParseStreamEvent(data []byte) (StreamEvent, error) {
 				out.FinishReason = fr
 				out.HasFinish = true
 			}
+			if delta, ok := c0["delta"].(map[string]interface{}); ok {
+				if rawCalls, ok := delta["tool_calls"].([]interface{}); ok {
+					for _, rawCall := range rawCalls {
+						call, ok := rawCall.(map[string]interface{})
+						if !ok {
+							continue
+						}
+						d := ToolCallDelta{}
+						if idx, ok := call["index"]; ok {
+							d.Index = int(toInt64(idx))
+						}
+						if id, ok := call["id"].(string); ok {
+							d.ID = id
+						}
+						if fn, ok := call["function"].(map[string]interface{}); ok {
+							if name, ok := fn["name"].(string); ok {
+								d.Name = name
+							}
+							if args, ok := fn["arguments"].(string); ok {
+								d.ArgsDelta = args
+							}
+						}
+						out.ToolCallDeltas = append(out.ToolCallDeltas, d)
+					}
+				}
+			}
 		}
 	}
 
 	return out, nil
+}
+
+func (t *OpenAITransport) ExtractToolUseBlocks(body []byte) ([]ToolUseBlock, error) {
+	var resp struct {
+		Choices []struct {
+			Message struct {
+				ToolCalls []struct {
+					ID       string `json:"id"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+	var blocks []ToolUseBlock
+	for _, choice := range resp.Choices {
+		for _, tc := range choice.Message.ToolCalls {
+			rawInput := json.RawMessage(tc.Function.Arguments)
+			// Preserve malformed args as {"_raw_args": "<original>"} for forensic context.
+			if !json.Valid(rawInput) {
+				escaped, _ := json.Marshal(string(rawInput))
+				rawInput = json.RawMessage(`{"_raw_args":` + string(escaped) + `}`)
+			}
+			blocks = append(blocks, ToolUseBlock{
+				ID:        tc.ID,
+				ToolName:  tc.Function.Name,
+				ToolInput: rawInput,
+				Targets:   ParseTargets(tc.Function.Name, rawInput),
+			})
+		}
+	}
+	if len(blocks) == 0 {
+		return nil, nil
+	}
+	return blocks, nil
 }
 
 func toInt64(v interface{}) int64 {

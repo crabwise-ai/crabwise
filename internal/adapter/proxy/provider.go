@@ -20,6 +20,7 @@ type Config struct {
 	DefaultProvider     string
 	UpstreamTimeout     time.Duration
 	StreamIdleTimeout   time.Duration
+	StreamMaxBuffer     int64 // max bytes to buffer for streaming enforcement; 0 = default 10MB
 	MaxRequestBody      int64
 	RedactEgressDefault bool
 	CACert              string
@@ -45,6 +46,9 @@ type Transport interface {
 	PrepareAuth(req *http.Request) error
 	Forward(ctx context.Context, req *http.Request) (*http.Response, error)
 	ParseStreamEvent(data []byte) (StreamEvent, error)
+	// ExtractToolUseBlocks extracts complete tool_use blocks from a
+	// non-streaming response body. Returns nil slice if none present.
+	ExtractToolUseBlocks(body []byte) ([]ToolUseBlock, error)
 }
 
 type TransportFactory func(cfg ProviderConfig, upstreamTimeout time.Duration) Transport
@@ -68,13 +72,14 @@ func lookupTransportFactory(name string) (TransportFactory, bool) {
 }
 
 type StreamEvent struct {
-	Model        string
-	FinishReason string
-	InputTokens  int64
-	OutputTokens int64
-	HasUsage     bool
-	HasFinish    bool
-	EventType    string // SSE event: field value (e.g. "content_block_delta" for Anthropic)
+	Model          string
+	FinishReason   string
+	InputTokens    int64
+	OutputTokens   int64
+	HasUsage       bool
+	HasFinish      bool
+	EventType      string         // SSE event: field value (e.g. "content_block_delta" for Anthropic)
+	ToolCallDeltas []ToolCallDelta // NEW: streaming tool call fragments
 }
 
 type NormalizedTool struct {
