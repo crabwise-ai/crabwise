@@ -399,6 +399,8 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 		sendUpstreamHeaders(upstreamResp.StatusCode)
 		if _, err := w.Write(buffered.Body); err != nil {
 			p.metrics.UpstreamErrors.Add(1)
+			normResp.ErrorType = "write_error"
+			normResp.ErrorMessage = err.Error()
 		}
 		if flusher, ok := w.(http.Flusher); ok {
 			flusher.Flush()
@@ -419,8 +421,9 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 			normResp.ErrorMessage = readErr.Error()
 		}
 
-		// Response-side tool_use enforcement (non-streaming)
-		if len(respBody) > 0 && upstreamResp.StatusCode < 400 {
+		// Response-side tool_use enforcement (non-streaming, JSON only).
+		// Skip binary/audio/text responses — ExtractToolUseBlocks requires JSON.
+		if len(respBody) > 0 && upstreamResp.StatusCode < 400 && strings.Contains(contentType, "application/json") {
 			toolUseBlocks, extractErr := providerRuntime.Transport.ExtractToolUseBlocks(respBody)
 			if extractErr != nil {
 				writeProxyError(w, http.StatusBadGateway, "enforcement_error",
@@ -454,11 +457,17 @@ func (p *Proxy) handleProxy(w http.ResponseWriter, r *http.Request) {
 					writeProxyError(w, http.StatusBadGateway, "mapping_error", normResp.ErrorMessage, eventID)
 				} else {
 					sendUpstreamHeaders(upstreamResp.StatusCode)
-					_, _ = w.Write(respBody)
+					if _, writeErr := w.Write(respBody); writeErr != nil {
+						normResp.ErrorType = "write_error"
+						normResp.ErrorMessage = writeErr.Error()
+					}
 				}
 			} else {
 				sendUpstreamHeaders(upstreamResp.StatusCode)
-				_, _ = w.Write(respBody)
+				if _, writeErr := w.Write(respBody); writeErr != nil {
+					normResp.ErrorType = "write_error"
+					normResp.ErrorMessage = writeErr.Error()
+				}
 				normResp = responseMapped
 				normResp.MappingDegraded = mappingDegraded
 			}
