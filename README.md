@@ -78,6 +78,11 @@ Prints an OS-specific command to trust Crabwise's local CA certificate (required
 
 Runs the daemon in the foreground. Discovers Claude Code sessions under `~/.claude/projects/` and Codex CLI sessions under `~/.codex/sessions/`, parses JSONL logs, and writes events to SQLite with hash chaining. When CA certificates are configured (via `crabwise init`), the daemon also runs a forward HTTPS proxy that intercepts AI provider traffic for policy enforcement.
 
+The proxy enforces policy on both sides of the LLM call:
+
+- **Request side** — commandments that match on request fields (model, endpoint, tool category) block the request before it reaches the provider (HTTP 403).
+- **Response side** — the proxy buffers the full response (streaming or non-streaming), extracts `tool_use` blocks from the model's reply, and evaluates them against commandments before forwarding to the agent. A blocked tool_use returns HTTP 403; a parse or buffer failure returns HTTP 502 (`enforcement_error`). Only `application/json` responses are evaluated; binary/audio endpoints pass through untouched.
+
 If `adapters.openclaw.enabled` is set, the daemon also connects to the local OpenClaw Gateway for session attribution. Phase 1 only governs provider calls that hit the Crabwise proxy. It does not block local OpenClaw tool execution after a model response is already in-process.
 
 Background it yourself with systemd, `&`, or a process manager.
@@ -142,6 +147,45 @@ crabwise commandments reload
 ```
 
 Subcommands: `list`, `test <event-json>`, `reload`
+
+### `gate.evaluate` (IPC)
+
+JSON-RPC 2.0 method available on the daemon's Unix socket. Lets external callers (e.g. Claude Code hooks) evaluate a tool call against active commandments before executing it.
+
+Request:
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "gate.evaluate",
+  "params": {
+    "agent_id": "claude-code",
+    "tool_name": "Bash",
+    "tool_category": "shell",
+    "tool_effect": "execute",
+    "targets": {
+      "argv": ["rm", "-rf", "/tmp/foo"],
+      "paths": ["/tmp/foo"],
+      "path_mode": "delete"
+    }
+  },
+  "id": 1
+}
+```
+
+Response:
+```json
+{
+  "result": {
+    "gate_event_id": "evt_...",
+    "decision": "block",
+    "commandment_id": "no-destructive-commands",
+    "reason": "Destructive command detected",
+    "enforcement": "block"
+  }
+}
+```
+
+`decision` is `"block"` or `"pass"`. Blocked calls are emitted to the audit trail with `outcome=blocked`; passed calls are not emitted (no audit noise for routine tools).
 
 ### `crabwise wrap`
 
@@ -218,6 +262,16 @@ Notes:
 - `OPENCLAW_API_TOKEN` is only needed if your Gateway requires token auth.
 - Changes under `adapters.openclaw.*` require a daemon restart in phase 1. `SIGHUP` still only reloads commandments, tool registry, and proxy mappings.
 - OpenClaw governance in phase 1 is provider-call governance only. Crabwise blocks upstream model requests, not local tool execution inside the OpenClaw host.
+
+### Proxy enforcement config
+
+```yaml
+adapters:
+  proxy:
+    stream_max_buffer: 10485760   # max bytes to buffer for streaming responses (default 10 MiB)
+```
+
+`stream_max_buffer` caps the pre-buffer used for streaming response-side enforcement. Responses exceeding this limit return HTTP 502 (`enforcement_error`). Increase it if you work with large streaming responses; reduce it to bound memory usage.
 
 ### OpenTelemetry Export
 
