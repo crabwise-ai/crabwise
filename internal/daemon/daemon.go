@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -40,6 +41,7 @@ type Daemon struct {
 	registry      *discovery.Registry
 	watcher       *logwatcher.LogWatcher
 	proxy         *proxy.Proxy
+	openclawMu    sync.RWMutex
 	openclaw      *openclaw.Adapter
 	openclawState *openclawstate.Store
 	commandments  CommandmentsService
@@ -568,7 +570,9 @@ func (d *Daemon) startOpenClaw(ctx context.Context) error {
 	if err := adapter.Start(ctx, d.eventCh); err != nil {
 		return err
 	}
+	d.openclawMu.Lock()
 	d.openclaw = adapter
+	d.openclawMu.Unlock()
 	return nil
 }
 
@@ -608,9 +612,12 @@ func (d *Daemon) statusSnapshot() map[string]interface{} {
 			resp[k] = v
 		}
 	}
-	if d.openclaw != nil && d.openclaw.Connected() {
+	d.openclawMu.RLock()
+	oc := d.openclaw
+	d.openclawMu.RUnlock()
+	if oc != nil && oc.Connected() {
 		resp["openclaw_connected"] = float64(1)
-		resp["openclaw_session_cache_size"] = float64(d.openclaw.SessionCacheSize())
+		resp["openclaw_session_cache_size"] = float64(oc.SessionCacheSize())
 	}
 	if d.openclawState != nil {
 		stats := d.openclawState.Stats()
