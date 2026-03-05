@@ -3,7 +3,6 @@ package proxy
 import (
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/crabwise-ai/crabwise/internal/audit"
 	"github.com/crabwise-ai/crabwise/internal/classify"
@@ -43,7 +42,7 @@ func TestEvaluateToolUseBlocks_Blocked(t *testing.T) {
 		ToolInput: json.RawMessage(`{"command":"rm -rf /"}`),
 		Targets:   ParseTargets("Bash", json.RawMessage(`{"command":"rm -rf /"}`)),
 	}}
-	blocked, commandmentID := p.evaluateToolUseBlocks(blocks, "openai", "gpt-4o", time.Now())
+	blocked, commandmentID := p.evaluateToolUseBlocks(blocks, "openai", "gpt-4o")
 	if !blocked {
 		t.Fatal("expected blocked=true")
 	}
@@ -59,7 +58,7 @@ func TestEvaluateToolUseBlocks_NotBlocked(t *testing.T) {
 		ToolName:  "Read",
 		ToolInput: json.RawMessage(`{"file_path":"/src/main.go"}`),
 	}}
-	blocked, _ := p.evaluateToolUseBlocks(blocks, "openai", "gpt-4o", time.Now())
+	blocked, _ := p.evaluateToolUseBlocks(blocks, "openai", "gpt-4o")
 	if blocked {
 		t.Fatal("expected blocked=false")
 	}
@@ -67,7 +66,7 @@ func TestEvaluateToolUseBlocks_NotBlocked(t *testing.T) {
 
 func TestEvaluateToolUseBlocks_Empty(t *testing.T) {
 	p := &Proxy{evaluator: &stubEvaluator{blockTool: "Bash"}, classifier: &noopClassifier{}}
-	blocked, _ := p.evaluateToolUseBlocks(nil, "openai", "gpt-4o", time.Now())
+	blocked, _ := p.evaluateToolUseBlocks(nil, "openai", "gpt-4o")
 	if blocked {
 		t.Fatal("expected blocked=false for empty blocks")
 	}
