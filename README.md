@@ -187,6 +187,30 @@ Response:
 
 `decision` is `"block"` or `"pass"`. Blocked calls are emitted to the audit trail with `outcome=blocked`; passed calls are not emitted (no audit noise for routine tools).
 
+**Quick test** (daemon must be running):
+
+```bash
+echo '{"jsonrpc":"2.0","method":"gate.evaluate","params":{"agent_id":"test","tool_name":"Bash","tool_category":"shell","tool_effect":"execute","targets":{"argv":["rm","-rf","/"]}},"id":1}' \
+  | nc -U ~/.local/share/crabwise/crabwise.sock
+```
+
+**Claude Code hook example** (`~/.claude/hooks/pre-tool.sh`):
+
+```bash
+#!/usr/bin/env bash
+# Called by Claude Code before each tool execution.
+# Exit 1 to abort the tool; exit 0 to allow it.
+TOOL_NAME="${CLAUDE_TOOL_NAME:-}"
+ARGV="${CLAUDE_TOOL_INPUT:-}"
+
+RESP=$(printf '{"jsonrpc":"2.0","method":"gate.evaluate","params":{"agent_id":"claude-code","tool_name":"%s","targets":{"argv":%s}},"id":1}' \
+  "$TOOL_NAME" "$ARGV" \
+  | nc -U ~/.local/share/crabwise/crabwise.sock)
+
+DECISION=$(echo "$RESP" | jq -r '.result.decision // "pass"')
+[ "$DECISION" = "block" ] && exit 1 || exit 0
+```
+
 ### `crabwise wrap`
 
 Launches a command with proxy environment variables configured. All HTTPS traffic from the wrapped process routes through the crabwise proxy for monitoring and enforcement.
