@@ -81,6 +81,16 @@ service:
       systemd_unit: openclaw-gateway
       launchd_plist: com.openclaw.gateway
 
+notifications:
+  desktop:
+    enabled: false
+    min_interval: 10s
+  webhook:
+    enabled: false
+    url: ""
+    auth_header_env: ""
+    min_interval: 5s
+
 otel:
   enabled: false
   endpoint: localhost:4318

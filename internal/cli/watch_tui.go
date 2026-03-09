@@ -115,8 +115,8 @@ func pollDaemonStatus(socketPath string) tea.Msg {
 	}
 }
 
-func runWatchTUI(cfg *daemon.Config) error {
-	conn, err := openWatchStream(cfg.Daemon.SocketPath)
+func runWatchTUI(cfg *daemon.Config, outcome string) error {
+	conn, err := openWatchStream(cfg.Daemon.SocketPath, outcome)
 	if err != nil {
 		return err
 	}
@@ -126,7 +126,7 @@ func runWatchTUI(cfg *daemon.Config) error {
 		ReconnectDelay: 1500 * time.Millisecond,
 		StatusInterval: 3 * time.Second,
 		Reconnect: func() tea.Msg {
-			reconnected, reconnectErr := openWatchStream(cfg.Daemon.SocketPath)
+			reconnected, reconnectErr := openWatchStream(cfg.Daemon.SocketPath, outcome)
 			if reconnectErr != nil {
 				return reconnectResultMsg{Err: reconnectErr}
 			}
@@ -157,13 +157,17 @@ func runWatchTUI(cfg *daemon.Config) error {
 	return nil
 }
 
-func openWatchStream(socketPath string) (watchConn, error) {
+func openWatchStream(socketPath string, outcome string) (watchConn, error) {
 	client, err := ipc.Dial(socketPath)
 	if err != nil {
 		return watchConn{}, fmt.Errorf("connect to daemon: %w", err)
 	}
 
-	scanner, err := client.Subscribe("audit.subscribe", nil)
+	var subscribeParams json.RawMessage
+	if outcome != "" {
+		subscribeParams, _ = json.Marshal(map[string]string{"outcome": outcome})
+	}
+	scanner, err := client.Subscribe("audit.subscribe", subscribeParams)
 	if err != nil {
 		_ = client.Close()
 		return watchConn{}, fmt.Errorf("subscribe: %w", err)

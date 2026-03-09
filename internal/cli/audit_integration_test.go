@@ -65,7 +65,7 @@ commandments:
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- daemon.New(cfg).Run(ctx)
+		errCh <- daemon.New(cfg, "").Run(ctx)
 	}()
 
 	t.Cleanup(func() {
@@ -160,7 +160,7 @@ commandments:
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- daemon.New(cfg).Run(ctx)
+		errCh <- daemon.New(cfg, "").Run(ctx)
 	}()
 
 	t.Cleanup(func() {

@@ -35,7 +35,25 @@ type Config struct {
 	ToolRegistry ToolRegistryConfig `yaml:"tool_registry"`
 	Cost         CostConfig         `yaml:"cost"`
 	Service      ServiceConfig      `yaml:"service"`
-	OTel         OTelConfig         `yaml:"otel"`
+	OTel          OTelConfig          `yaml:"otel"`
+	Notifications NotificationsConfig `yaml:"notifications"`
+}
+
+type NotificationsConfig struct {
+	Desktop DesktopNotifyConfig `yaml:"desktop"`
+	Webhook WebhookNotifyConfig `yaml:"webhook"`
+}
+
+type DesktopNotifyConfig struct {
+	Enabled     bool     `yaml:"enabled"`
+	MinInterval Duration `yaml:"min_interval"`
+}
+
+type WebhookNotifyConfig struct {
+	Enabled       bool     `yaml:"enabled"`
+	URL           string   `yaml:"url"`
+	AuthHeaderEnv string   `yaml:"auth_header_env"`
+	MinInterval   Duration `yaml:"min_interval"`
 }
 
 type OTelConfig struct {
@@ -377,6 +395,12 @@ func (c *Config) validate() error {
 		if price.Input < 0 || price.Output < 0 {
 			return fmt.Errorf("cost.pricing.%s values must be non-negative", model)
 		}
+	}
+	if c.Notifications.Webhook.Enabled && strings.TrimSpace(c.Notifications.Webhook.URL) == "" {
+		return fmt.Errorf("notifications.webhook.url required when webhook enabled")
+	}
+	if c.Notifications.Webhook.AuthHeaderEnv != "" && strings.TrimSpace(c.Notifications.Webhook.AuthHeaderEnv) == "" {
+		return fmt.Errorf("notifications.webhook.auth_header_env must be non-empty if set")
 	}
 	return nil
 }

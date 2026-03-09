@@ -17,7 +17,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type watchRunner func(cfg *daemon.Config) error
+type watchRunner func(cfg *daemon.Config, outcome string) error
 
 var runWatchTextMode watchRunner = runWatchText
 var runWatchTUIMode watchRunner = runWatchTUI
@@ -25,6 +25,7 @@ var runWatchTUIMode watchRunner = runWatchTUI
 func newWatchCmd() *cobra.Command {
 	var configPath string
 	var textMode bool
+	var outcome string
 
 	cmd := &cobra.Command{
 		Use:   "watch",
@@ -36,26 +37,31 @@ func newWatchCmd() *cobra.Command {
 			}
 
 			if textMode {
-				return runWatchTextMode(cfg)
+				return runWatchTextMode(cfg, outcome)
 			}
 
-			return runWatchTUIMode(cfg)
+			return runWatchTUIMode(cfg, outcome)
 		},
 	}
 
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "config file path")
 	cmd.Flags().BoolVar(&textMode, "text", false, "use plain-text stream output")
+	cmd.Flags().StringVar(&outcome, "outcome", "", "filter events by outcome (e.g. blocked)")
 	return cmd
 }
 
-func runWatchText(cfg *daemon.Config) error {
+func runWatchText(cfg *daemon.Config, outcome string) error {
 	client, err := ipc.Dial(cfg.Daemon.SocketPath)
 	if err != nil {
 		return fmt.Errorf("connect to daemon: %w", err)
 	}
 	defer client.Close()
 
-	scanner, err := client.Subscribe("audit.subscribe", nil)
+	var subscribeParams json.RawMessage
+	if outcome != "" {
+		subscribeParams, _ = json.Marshal(map[string]string{"outcome": outcome})
+	}
+	scanner, err := client.Subscribe("audit.subscribe", subscribeParams)
 	if err != nil {
 		return fmt.Errorf("subscribe: %w", err)
 	}

@@ -149,7 +149,7 @@ func runStartTUI(cfg *daemon.Config) error {
 	errCh := make(chan error, 1)
 	go func() {
 		daemon.Version = Version
-		d := daemon.New(cfg)
+		d := daemon.New(cfg, "")
 		errCh <- d.Run(ctx)
 	}()
 	go func() {

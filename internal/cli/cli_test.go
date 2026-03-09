@@ -111,11 +111,11 @@ func TestWatchCommand_TextFallbackFlag(t *testing.T) {
 
 	calledText := false
 	calledTUI := false
-	runWatchTextMode = func(_ *daemon.Config) error {
+	runWatchTextMode = func(_ *daemon.Config, _ string) error {
 		calledText = true
 		return nil
 	}
-	runWatchTUIMode = func(_ *daemon.Config) error {
+	runWatchTUIMode = func(_ *daemon.Config, _ string) error {
 		calledTUI = true
 		return nil
 	}

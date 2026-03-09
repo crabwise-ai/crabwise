@@ -161,7 +161,7 @@ func startRedactionE2ERuntime(t *testing.T, upstreamURL string, redactDefault bo
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- New(cfg).Run(ctx)
+		errCh <- New(cfg, "").Run(ctx)
 	}()
 
 	t.Cleanup(func() {
