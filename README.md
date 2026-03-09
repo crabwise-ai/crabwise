@@ -18,13 +18,13 @@ curl -sSfL https://raw.githubusercontent.com/crabwise-ai/crabwise/main/install.s
 
 ```bash
 # GitHub CLI — Linux (x86_64)
-gh release download --repo crabwise-ai/crabwise --pattern '*linux_amd64*' && tar xzf crabwise_*_linux_amd64.tar.gz && sudo mv crabwise /usr/local/bin/
+cd "$(mktemp -d)" && gh release download --repo crabwise-ai/crabwise --pattern '*linux_amd64.tar.gz' && tar xzf *.tar.gz && sudo mv crabwise /usr/local/bin/
 
 # GitHub CLI — macOS (Apple Silicon)
-gh release download --repo crabwise-ai/crabwise --pattern '*darwin_arm64*' && tar xzf crabwise_*_darwin_arm64.tar.gz && sudo mv crabwise /usr/local/bin/
+cd "$(mktemp -d)" && gh release download --repo crabwise-ai/crabwise --pattern '*darwin_arm64.tar.gz' && tar xzf *.tar.gz && sudo mv crabwise /usr/local/bin/
 
 # GitHub CLI — macOS (Intel)
-gh release download --repo crabwise-ai/crabwise --pattern '*darwin_amd64*' && tar xzf crabwise_*_darwin_amd64.tar.gz && sudo mv crabwise /usr/local/bin/
+cd "$(mktemp -d)" && gh release download --repo crabwise-ai/crabwise --pattern '*darwin_amd64.tar.gz' && tar xzf *.tar.gz && sudo mv crabwise /usr/local/bin/
 
 # go install
 go install github.com/crabwise-ai/crabwise/cmd/crabwise@latest
