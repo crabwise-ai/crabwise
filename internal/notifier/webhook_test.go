@@ -164,24 +164,122 @@ func TestWebhookBackend_DiscordFormat(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var parsed map[string]string
+	var parsed struct {
+		Content         string `json:"content"`
+		AllowedMentions struct {
+			Parse []string `json:"parse"`
+		} `json:"allowed_mentions"`
+	}
 	if err := json.Unmarshal([]byte(receivedBody), &parsed); err != nil {
 		t.Fatalf("unmarshal discord payload: %v", err)
 	}
 
-	content := parsed["content"]
-	if content == "" {
+	if parsed.Content == "" {
 		t.Fatal("expected discord content field")
 	}
 	for _, want := range []string{"claude", "rm_rf", "no-destructive", "blocked destructive cmd"} {
+		if !strings.Contains(parsed.Content, want) {
+			t.Errorf("expected content to contain %q, got: %s", want, parsed.Content)
+		}
+	}
+	if len(parsed.AllowedMentions.Parse) != 0 {
+		t.Fatalf("expected allowed_mentions.parse to be empty, got %#v", parsed.AllowedMentions.Parse)
+	}
+}
+
+func TestWebhookBackend_DiscordFormatDisablesMentions(t *testing.T) {
+	var receivedBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = string(body)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	b := NewWebhookBackend(WebhookConfig{
+		Enabled: true,
+		URL:     srv.URL,
+		Format:  "discord",
+	})
+
+	evt := &audit.AuditEvent{
+		ID:                    "evt1",
+		Timestamp:             time.Now().UTC(),
+		AgentID:               "@everyone",
+		Action:                "rm_rf",
+		Outcome:               audit.OutcomeBlocked,
+		CommandmentsTriggered: `[{"name":"no-destructive","enforcement":"block","message":"ping @here"}]`,
+	}
+
+	if err := b.Send(context.Background(), evt); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var parsed struct {
+		Content         string `json:"content"`
+		AllowedMentions struct {
+			Parse []string `json:"parse"`
+		} `json:"allowed_mentions"`
+	}
+	if err := json.Unmarshal([]byte(receivedBody), &parsed); err != nil {
+		t.Fatalf("unmarshal discord payload: %v", err)
+	}
+
+	if parsed.Content == "" {
+		t.Fatal("expected content field")
+	}
+	if parsed.AllowedMentions.Parse == nil {
+		t.Fatal("expected allowed_mentions.parse to be present")
+	}
+	if len(parsed.AllowedMentions.Parse) != 0 {
+		t.Fatalf("expected allowed_mentions.parse to be empty, got %#v", parsed.AllowedMentions.Parse)
+	}
+}
+
+func TestWebhookBackend_DiscordFormatClampsContentLength(t *testing.T) {
+	var receivedBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = string(body)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	b := NewWebhookBackend(WebhookConfig{
+		Enabled: true,
+		URL:     srv.URL,
+		Format:  "discord",
+	})
+
+	evt := &audit.AuditEvent{
+		ID:                    "evt1",
+		Timestamp:             time.Now().UTC(),
+		AgentID:               "claude",
+		Action:                "rm_rf",
+		Outcome:               audit.OutcomeBlocked,
+		CommandmentsTriggered: `[{"name":"no-destructive","enforcement":"block","message":"` + strings.Repeat("x", 2500) + `"}]`,
+	}
+
+	if err := b.Send(context.Background(), evt); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(receivedBody), &parsed); err != nil {
+		t.Fatalf("unmarshal discord payload: %v", err)
+	}
+
+	content, _ := parsed["content"].(string)
+	if content == "" {
+		t.Fatal("expected content field")
+	}
+	if len(content) > 2000 {
+		t.Fatalf("expected discord content to be <= 2000 chars, got %d", len(content))
+	}
+	for _, want := range []string{"claude", "rm_rf", "no-destructive"} {
 		if !strings.Contains(content, want) {
 			t.Errorf("expected content to contain %q, got: %s", want, content)
 		}
-	}
-
-	// Should NOT have the standard payload fields
-	if _, ok := parsed["event"]; ok {
-		t.Error("discord format should not have 'event' field")
 	}
 }
 

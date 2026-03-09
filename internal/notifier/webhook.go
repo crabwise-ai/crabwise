@@ -46,6 +46,15 @@ type webhookPayload struct {
 	Timestamp string `json:"timestamp"`
 }
 
+type discordPayload struct {
+	Content         string                 `json:"content"`
+	AllowedMentions discordAllowedMentions `json:"allowed_mentions"`
+}
+
+type discordAllowedMentions struct {
+	Parse []string `json:"parse"`
+}
+
 func (w *WebhookBackend) Send(ctx context.Context, evt *audit.AuditEvent) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -69,14 +78,19 @@ func (w *WebhookBackend) Send(ctx context.Context, evt *audit.AuditEvent) error 
 		err  error
 	)
 	if w.format == "discord" {
-		content := fmt.Sprintf("🚫 Agent **%s** blocked: %s", evt.AgentID, evt.Action)
+		content := fmt.Sprintf("Agent **%s** blocked: %s", evt.AgentID, evt.Action)
 		if ruleName != "" {
 			content += fmt.Sprintf(" (%s)", ruleName)
 		}
 		if ruleMsg != "" {
-			content += fmt.Sprintf(" — %s", ruleMsg)
+			content += fmt.Sprintf(" - %s", ruleMsg)
 		}
-		body, err = json.Marshal(map[string]string{"content": content})
+		body, err = json.Marshal(discordPayload{
+			Content: truncateDiscordContent(content),
+			AllowedMentions: discordAllowedMentions{
+				Parse: []string{},
+			},
+		})
 	} else {
 		body, err = json.Marshal(webhookPayload{
 			Event:     "block",
@@ -115,4 +129,13 @@ func (w *WebhookBackend) Send(ctx context.Context, evt *audit.AuditEvent) error 
 
 	w.lastSent = time.Now()
 	return nil
+}
+
+func truncateDiscordContent(content string) string {
+	const maxLen = 2000
+	if len(content) <= maxLen {
+		return content
+	}
+	const suffix = "..."
+	return content[:maxLen-len(suffix)] + suffix
 }
