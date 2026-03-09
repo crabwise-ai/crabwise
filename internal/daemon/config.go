@@ -267,6 +267,11 @@ func LoadConfig(path string) (*Config, error) {
 	return cfg, nil
 }
 
+// DefaultConfigPath returns the default config file path.
+func DefaultConfigPath() string {
+	return defaultConfigPath()
+}
+
 func defaultConfigPath() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		return filepath.Join(xdg, "crabwise", "config.yaml")
@@ -297,6 +302,11 @@ func (c *Config) expandPaths() {
 	for i, p := range c.Discovery.LogPaths {
 		c.Discovery.LogPaths[i] = expand(p)
 	}
+}
+
+// Validate checks config invariants.
+func (c *Config) Validate() error {
+	return c.validate()
 }
 
 func (c *Config) validate() error {
