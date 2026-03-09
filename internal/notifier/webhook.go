@@ -94,11 +94,10 @@ func (w *WebhookBackend) Send(ctx context.Context, evt *audit.AuditEvent) error 
 	}
 	defer resp.Body.Close()
 
-	w.lastSent = time.Now()
-
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("webhook returned %d", resp.StatusCode)
 	}
 
+	w.lastSent = time.Now()
 	return nil
 }

@@ -99,6 +99,41 @@ func TestWebhookBackend_MinInterval(t *testing.T) {
 	}
 }
 
+func TestWebhookBackend_FailureDoesNotConsumeWindow(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if callCount == 1 {
+			w.WriteHeader(500)
+			return
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	b := NewWebhookBackend(WebhookConfig{
+		Enabled:     true,
+		URL:         srv.URL,
+		MinInterval: 1 * time.Hour,
+	})
+
+	evt := &audit.AuditEvent{
+		ID:        "evt1",
+		Timestamp: time.Now().UTC(),
+		AgentID:   "test",
+		Action:    "test",
+		Outcome:   audit.OutcomeBlocked,
+	}
+
+	ctx := context.Background()
+	_ = b.Send(ctx, evt) // 500 — should NOT consume debounce window
+	_ = b.Send(ctx, evt) // should retry since previous failed
+
+	if callCount != 2 {
+		t.Errorf("expected 2 webhook calls (failure should not debounce), got %d", callCount)
+	}
+}
+
 func TestWebhookBackend_NoAuthWhenEnvEmpty(t *testing.T) {
 	var authHeader string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -243,6 +243,8 @@ func LoadConfig(path string) (*Config, error) {
 			"gpt-4o":      {Input: 2.50, Output: 10.00},
 			"gpt-4o-mini": {Input: 0.15, Output: 0.60},
 		}
+		cfg.Notifications.Desktop.MinInterval = Duration(10 * time.Second)
+		cfg.Notifications.Webhook.MinInterval = Duration(5 * time.Second)
 	}
 
 	// Override with user config if present
@@ -396,8 +398,16 @@ func (c *Config) validate() error {
 			return fmt.Errorf("cost.pricing.%s values must be non-negative", model)
 		}
 	}
-	if c.Notifications.Webhook.Enabled && strings.TrimSpace(c.Notifications.Webhook.URL) == "" {
-		return fmt.Errorf("notifications.webhook.url required when webhook enabled")
+	if c.Notifications.Desktop.Enabled && c.Notifications.Desktop.MinInterval.Duration() <= 0 {
+		return fmt.Errorf("notifications.desktop.min_interval must be > 0 when desktop enabled")
+	}
+	if c.Notifications.Webhook.Enabled {
+		if strings.TrimSpace(c.Notifications.Webhook.URL) == "" {
+			return fmt.Errorf("notifications.webhook.url required when webhook enabled")
+		}
+		if c.Notifications.Webhook.MinInterval.Duration() <= 0 {
+			return fmt.Errorf("notifications.webhook.min_interval must be > 0 when webhook enabled")
+		}
 	}
 	if c.Notifications.Webhook.AuthHeaderEnv != "" && strings.TrimSpace(c.Notifications.Webhook.AuthHeaderEnv) == "" {
 		return fmt.Errorf("notifications.webhook.auth_header_env must be non-empty if set")

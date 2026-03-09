@@ -57,9 +57,8 @@ func (d *DesktopBackend) Send(ctx context.Context, evt *audit.AuditEvent) error 
 			log.Printf("notifier: desktop notification failed (will fallback to bell): %v", err)
 			d.warnedOnce = true
 		}
-		// Bell fallback
+		// Bell fallback — still rate-limit so we don't spam bells
 		fmt.Fprint(os.Stderr, "\a")
-		return nil
 	}
 
 	d.lastSent = time.Now()

@@ -509,13 +509,13 @@ func (d *Daemon) removePID() {
 }
 
 func (d *Daemon) reloadRuntime() (int, error) {
-	// Re-read config from disk for notification settings
-	if d.cfgPath != "" {
-		if newCfg, err := LoadConfig(d.cfgPath); err != nil {
-			log.Printf("daemon: config re-read error (keeping existing notifications): %v", err)
-		} else {
-			d.cfg.Notifications = newCfg.Notifications
-		}
+	// Re-read config from disk for notification settings.
+	// cfgPath may be empty when started without --config; LoadConfig("") resolves the default path.
+	if newCfg, err := LoadConfig(d.cfgPath); err != nil {
+		log.Printf("daemon: config re-read error (keeping existing notifications): %v", err)
+		d.emitSystemEvent("config_reload_failed", audit.OutcomeFailure, map[string]interface{}{"error": err.Error()})
+	} else {
+		d.cfg.Notifications = newCfg.Notifications
 	}
 
 	newCommandments, cmdErr := NewCommandmentsService(d.cfg.Commandments.File, DefaultCommandmentsYAML)
