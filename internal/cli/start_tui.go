@@ -117,7 +117,7 @@ func (w *logLineWriter) send(line string) {
 	}
 }
 
-func runStartTUI(cfg *daemon.Config) error {
+func runStartTUI(cfg *daemon.Config, cfgPath string) error {
 	deps := startTUIDeps{
 		Now:    time.Now,
 		Cancel: func() {},
@@ -149,7 +149,7 @@ func runStartTUI(cfg *daemon.Config) error {
 	errCh := make(chan error, 1)
 	go func() {
 		daemon.Version = Version
-		d := daemon.New(cfg, "")
+		d := daemon.New(cfg, cfgPath)
 		errCh <- d.Run(ctx)
 	}()
 	go func() {

@@ -10,6 +10,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type startRunner func(cfg *daemon.Config, cfgPath string) error
+
+var runStartTUIMode startRunner = runStartTUI
+var startIsPlain = isPlain
+
 func newStartCmd() *cobra.Command {
 	var configPath string
 
@@ -22,8 +27,8 @@ func newStartCmd() *cobra.Command {
 				return fmt.Errorf("load config: %w", err)
 			}
 
-			if !isPlain() {
-				return runStartTUI(cfg)
+			if !startIsPlain() {
+				return runStartTUIMode(cfg, configPath)
 			}
 
 			if cfg.Adapters.Proxy.Enabled {

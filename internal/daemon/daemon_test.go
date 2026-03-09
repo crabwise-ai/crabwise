@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/crabwise-ai/crabwise/configs"
 	"github.com/crabwise-ai/crabwise/internal/adapter/proxy"
+	"github.com/crabwise-ai/crabwise/internal/audit"
 	"github.com/crabwise-ai/crabwise/internal/discovery"
 	"github.com/crabwise-ai/crabwise/internal/openclawstate"
 	"github.com/gorilla/websocket"
@@ -77,6 +79,40 @@ func TestReloadRuntime_ReturnsCombinedErrorWhenBothReloadsFail(t *testing.T) {
 	}
 	if !strings.Contains(msg, "reload tool registry") {
 		t.Fatalf("expected tool registry error context, got: %s", msg)
+	}
+}
+
+func TestReloadRuntime_ReturnsErrorWhenConfigRereadFails(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("notifications:\n  webhook: ["), 0600); err != nil {
+		t.Fatalf("write invalid config: %v", err)
+	}
+
+	prevCommandments := DefaultCommandmentsYAML
+	prevRegistry := DefaultToolRegistryYAML
+	DefaultCommandmentsYAML = configs.DefaultCommandmentsYAML
+	DefaultToolRegistryYAML = configs.DefaultToolRegistryYAML
+	t.Cleanup(func() {
+		DefaultCommandmentsYAML = prevCommandments
+		DefaultToolRegistryYAML = prevRegistry
+	})
+
+	d := &Daemon{
+		cfgPath: cfgPath,
+		logger:  &audit.Logger{},
+		cfg: &Config{
+			Commandments: CommandmentsConfig{},
+			ToolRegistry: ToolRegistryConfig{},
+		},
+	}
+
+	_, err := d.reloadRuntime()
+	if err == nil {
+		t.Fatal("expected runtime reload error when config reread fails")
+	}
+	if !strings.Contains(err.Error(), "reload config") {
+		t.Fatalf("expected config reload context, got: %v", err)
 	}
 }
 

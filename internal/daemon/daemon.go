@@ -21,9 +21,9 @@ import (
 	"github.com/crabwise-ai/crabwise/internal/adapter/proxy"
 	"github.com/crabwise-ai/crabwise/internal/audit"
 	"github.com/crabwise-ai/crabwise/internal/classify"
-	"github.com/crabwise-ai/crabwise/internal/notifier"
 	"github.com/crabwise-ai/crabwise/internal/discovery"
 	"github.com/crabwise-ai/crabwise/internal/ipc"
+	"github.com/crabwise-ai/crabwise/internal/notifier"
 	"github.com/crabwise-ai/crabwise/internal/openclawstate"
 	crabwiseOtel "github.com/crabwise-ai/crabwise/internal/otel"
 	"github.com/crabwise-ai/crabwise/internal/queue"
@@ -509,11 +509,14 @@ func (d *Daemon) removePID() {
 }
 
 func (d *Daemon) reloadRuntime() (int, error) {
+	var configReloadErr error
+
 	// Re-read config from disk for notification settings.
 	// cfgPath may be empty when started without --config; LoadConfig("") resolves the default path.
 	if newCfg, err := LoadConfig(d.cfgPath); err != nil {
 		log.Printf("daemon: config re-read error (keeping existing notifications): %v", err)
 		d.emitSystemEvent("config_reload_failed", audit.OutcomeFailure, map[string]interface{}{"error": err.Error()})
+		configReloadErr = fmt.Errorf("reload config: %w", err)
 	} else {
 		d.cfg.Notifications = newCfg.Notifications
 	}
@@ -528,17 +531,38 @@ func (d *Daemon) reloadRuntime() (int, error) {
 		d.emitSystemEvent("tool_registry_reload_failed", audit.OutcomeFailure, map[string]interface{}{"error": regErr.Error()})
 	}
 
-	if cmdErr != nil || regErr != nil {
-		if cmdErr != nil && regErr != nil {
-			return 0, fmt.Errorf("runtime reload failed: %w", errors.Join(
-				fmt.Errorf("reload commandments: %w", cmdErr),
-				fmt.Errorf("reload tool registry: %w", regErr),
-			))
-		}
-		if cmdErr != nil {
-			return 0, fmt.Errorf("runtime reload failed: reload commandments: %w", cmdErr)
-		}
-		return 0, fmt.Errorf("runtime reload failed: reload tool registry: %w", regErr)
+	var reloadErr error
+	switch {
+	case configReloadErr != nil && cmdErr != nil && regErr != nil:
+		reloadErr = fmt.Errorf("runtime reload failed: %w", errors.Join(
+			configReloadErr,
+			fmt.Errorf("reload commandments: %w", cmdErr),
+			fmt.Errorf("reload tool registry: %w", regErr),
+		))
+	case configReloadErr != nil && cmdErr != nil:
+		reloadErr = fmt.Errorf("runtime reload failed: %w", errors.Join(
+			configReloadErr,
+			fmt.Errorf("reload commandments: %w", cmdErr),
+		))
+	case configReloadErr != nil && regErr != nil:
+		reloadErr = fmt.Errorf("runtime reload failed: %w", errors.Join(
+			configReloadErr,
+			fmt.Errorf("reload tool registry: %w", regErr),
+		))
+	case cmdErr != nil && regErr != nil:
+		reloadErr = fmt.Errorf("runtime reload failed: %w", errors.Join(
+			fmt.Errorf("reload commandments: %w", cmdErr),
+			fmt.Errorf("reload tool registry: %w", regErr),
+		))
+	case configReloadErr != nil:
+		reloadErr = fmt.Errorf("runtime reload failed: %w", configReloadErr)
+	case cmdErr != nil:
+		reloadErr = fmt.Errorf("runtime reload failed: reload commandments: %w", cmdErr)
+	case regErr != nil:
+		reloadErr = fmt.Errorf("runtime reload failed: reload tool registry: %w", regErr)
+	}
+	if reloadErr != nil && (cmdErr != nil || regErr != nil) {
+		return 0, reloadErr
 	}
 
 	d.commandments = newCommandments
@@ -564,9 +588,13 @@ func (d *Daemon) reloadRuntime() (int, error) {
 	d.emitSystemEvent("commandments_reload_ok", audit.OutcomeSuccess, map[string]interface{}{"rules_loaded": rulesLoaded})
 	d.emitSystemEvent("tool_registry_reload_ok", audit.OutcomeSuccess, map[string]interface{}{"version": newRegistry.Version()})
 
-	if d.notifier != nil {
+	if configReloadErr == nil && d.notifier != nil {
 		d.notifier.Reload(context.Background(), notifierConfig(d.cfg.Notifications))
 		log.Printf("daemon: notifier reloaded")
+	}
+
+	if reloadErr != nil {
+		return rulesLoaded, reloadErr
 	}
 
 	return rulesLoaded, nil
