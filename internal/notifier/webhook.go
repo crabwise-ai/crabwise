@@ -17,6 +17,7 @@ import (
 type WebhookBackend struct {
 	url           string
 	authHeaderEnv string
+	format        string
 	minInterval   time.Duration
 	client        *http.Client
 	mu            sync.Mutex
@@ -28,6 +29,7 @@ func NewWebhookBackend(cfg WebhookConfig) *WebhookBackend {
 	return &WebhookBackend{
 		url:           cfg.URL,
 		authHeaderEnv: cfg.AuthHeaderEnv,
+		format:        cfg.Format,
 		minInterval:   cfg.MinInterval,
 		client:        &http.Client{Timeout: 5 * time.Second},
 	}
@@ -62,16 +64,29 @@ func (w *WebhookBackend) Send(ctx context.Context, evt *audit.AuditEvent) error 
 		}
 	}
 
-	payload := webhookPayload{
-		Event:     "block",
-		Agent:     evt.AgentID,
-		Action:    evt.Action,
-		Rule:      ruleName,
-		Message:   ruleMsg,
-		Timestamp: evt.Timestamp.UTC().Format(time.RFC3339),
+	var (
+		body []byte
+		err  error
+	)
+	if w.format == "discord" {
+		content := fmt.Sprintf("🚫 Agent **%s** blocked: %s", evt.AgentID, evt.Action)
+		if ruleName != "" {
+			content += fmt.Sprintf(" (%s)", ruleName)
+		}
+		if ruleMsg != "" {
+			content += fmt.Sprintf(" — %s", ruleMsg)
+		}
+		body, err = json.Marshal(map[string]string{"content": content})
+	} else {
+		body, err = json.Marshal(webhookPayload{
+			Event:     "block",
+			Agent:     evt.AgentID,
+			Action:    evt.Action,
+			Rule:      ruleName,
+			Message:   ruleMsg,
+			Timestamp: evt.Timestamp.UTC().Format(time.RFC3339),
+		})
 	}
-
-	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal payload: %w", err)
 	}

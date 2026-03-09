@@ -53,6 +53,7 @@ type WebhookNotifyConfig struct {
 	Enabled       bool     `yaml:"enabled"`
 	URL           string   `yaml:"url"`
 	AuthHeaderEnv string   `yaml:"auth_header_env"`
+	Format        string   `yaml:"format"` // "" (default JSON) or "discord"
 	MinInterval   Duration `yaml:"min_interval"`
 }
 
@@ -407,6 +408,11 @@ func (c *Config) validate() error {
 		}
 		if c.Notifications.Webhook.MinInterval.Duration() <= 0 {
 			return fmt.Errorf("notifications.webhook.min_interval must be > 0 when webhook enabled")
+		}
+		switch c.Notifications.Webhook.Format {
+		case "", "discord":
+		default:
+			return fmt.Errorf("notifications.webhook.format must be \"\" or \"discord\", got %q", c.Notifications.Webhook.Format)
 		}
 	}
 	if c.Notifications.Webhook.AuthHeaderEnv != "" && strings.TrimSpace(c.Notifications.Webhook.AuthHeaderEnv) == "" {

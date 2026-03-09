@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -131,6 +132,56 @@ func TestWebhookBackend_FailureDoesNotConsumeWindow(t *testing.T) {
 
 	if callCount != 2 {
 		t.Errorf("expected 2 webhook calls (failure should not debounce), got %d", callCount)
+	}
+}
+
+func TestWebhookBackend_DiscordFormat(t *testing.T) {
+	var receivedBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = string(body)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	b := NewWebhookBackend(WebhookConfig{
+		Enabled: true,
+		URL:     srv.URL,
+		Format:  "discord",
+	})
+
+	evt := &audit.AuditEvent{
+		ID:                    "evt1",
+		Timestamp:             time.Now().UTC(),
+		AgentID:               "claude",
+		Action:                "rm_rf",
+		Outcome:               audit.OutcomeBlocked,
+		CommandmentsTriggered: `[{"name":"no-destructive","enforcement":"block","message":"blocked destructive cmd"}]`,
+	}
+
+	err := b.Send(context.Background(), evt)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var parsed map[string]string
+	if err := json.Unmarshal([]byte(receivedBody), &parsed); err != nil {
+		t.Fatalf("unmarshal discord payload: %v", err)
+	}
+
+	content := parsed["content"]
+	if content == "" {
+		t.Fatal("expected discord content field")
+	}
+	for _, want := range []string{"claude", "rm_rf", "no-destructive", "blocked destructive cmd"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("expected content to contain %q, got: %s", want, content)
+		}
+	}
+
+	// Should NOT have the standard payload fields
+	if _, ok := parsed["event"]; ok {
+		t.Error("discord format should not have 'event' field")
 	}
 }
 

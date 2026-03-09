@@ -610,6 +610,7 @@ func notifierConfig(n NotificationsConfig) notifier.Config {
 			Enabled:       n.Webhook.Enabled,
 			URL:           n.Webhook.URL,
 			AuthHeaderEnv: n.Webhook.AuthHeaderEnv,
+			Format:        n.Webhook.Format,
 			MinInterval:   n.Webhook.MinInterval.Duration(),
 		},
 	}

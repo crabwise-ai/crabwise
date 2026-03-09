@@ -30,6 +30,7 @@ type WebhookConfig struct {
 	Enabled       bool
 	URL           string
 	AuthHeaderEnv string
+	Format        string // "" (default JSON) or "discord"
 	MinInterval   time.Duration
 }
 
