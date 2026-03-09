@@ -35,7 +35,26 @@ type Config struct {
 	ToolRegistry ToolRegistryConfig `yaml:"tool_registry"`
 	Cost         CostConfig         `yaml:"cost"`
 	Service      ServiceConfig      `yaml:"service"`
-	OTel         OTelConfig         `yaml:"otel"`
+	OTel          OTelConfig          `yaml:"otel"`
+	Notifications NotificationsConfig `yaml:"notifications"`
+}
+
+type NotificationsConfig struct {
+	Desktop DesktopNotifyConfig `yaml:"desktop"`
+	Webhook WebhookNotifyConfig `yaml:"webhook"`
+}
+
+type DesktopNotifyConfig struct {
+	Enabled     bool     `yaml:"enabled"`
+	MinInterval Duration `yaml:"min_interval"`
+}
+
+type WebhookNotifyConfig struct {
+	Enabled       bool     `yaml:"enabled"`
+	URL           string   `yaml:"url"`
+	AuthHeaderEnv string   `yaml:"auth_header_env"`
+	Format        string   `yaml:"format"` // "" (default JSON) or "discord"
+	MinInterval   Duration `yaml:"min_interval"`
 }
 
 type OTelConfig struct {
@@ -225,6 +244,8 @@ func LoadConfig(path string) (*Config, error) {
 			"gpt-4o":      {Input: 2.50, Output: 10.00},
 			"gpt-4o-mini": {Input: 0.15, Output: 0.60},
 		}
+		cfg.Notifications.Desktop.MinInterval = Duration(10 * time.Second)
+		cfg.Notifications.Webhook.MinInterval = Duration(5 * time.Second)
 	}
 
 	// Override with user config if present
@@ -244,6 +265,11 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// DefaultConfigPath returns the default config file path.
+func DefaultConfigPath() string {
+	return defaultConfigPath()
 }
 
 func defaultConfigPath() string {
@@ -276,6 +302,11 @@ func (c *Config) expandPaths() {
 	for i, p := range c.Discovery.LogPaths {
 		c.Discovery.LogPaths[i] = expand(p)
 	}
+}
+
+// Validate checks config invariants.
+func (c *Config) Validate() error {
+	return c.validate()
 }
 
 func (c *Config) validate() error {
@@ -377,6 +408,25 @@ func (c *Config) validate() error {
 		if price.Input < 0 || price.Output < 0 {
 			return fmt.Errorf("cost.pricing.%s values must be non-negative", model)
 		}
+	}
+	if c.Notifications.Desktop.Enabled && c.Notifications.Desktop.MinInterval.Duration() <= 0 {
+		return fmt.Errorf("notifications.desktop.min_interval must be > 0 when desktop enabled")
+	}
+	if c.Notifications.Webhook.Enabled {
+		if strings.TrimSpace(c.Notifications.Webhook.URL) == "" {
+			return fmt.Errorf("notifications.webhook.url required when webhook enabled")
+		}
+		if c.Notifications.Webhook.MinInterval.Duration() <= 0 {
+			return fmt.Errorf("notifications.webhook.min_interval must be > 0 when webhook enabled")
+		}
+		switch c.Notifications.Webhook.Format {
+		case "", "discord":
+		default:
+			return fmt.Errorf("notifications.webhook.format must be \"\" or \"discord\", got %q", c.Notifications.Webhook.Format)
+		}
+	}
+	if c.Notifications.Webhook.AuthHeaderEnv != "" && strings.TrimSpace(c.Notifications.Webhook.AuthHeaderEnv) == "" {
+		return fmt.Errorf("notifications.webhook.auth_header_env must be non-empty if set")
 	}
 	return nil
 }

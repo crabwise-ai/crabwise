@@ -212,7 +212,7 @@ func startDaemonOpenClawProxyE2ERuntime(t *testing.T, upstreamURL, commandmentsY
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- New(cfg).Run(ctx)
+		errCh <- New(cfg, "").Run(ctx)
 	}()
 
 	t.Cleanup(func() {

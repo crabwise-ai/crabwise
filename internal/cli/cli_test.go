@@ -111,11 +111,11 @@ func TestWatchCommand_TextFallbackFlag(t *testing.T) {
 
 	calledText := false
 	calledTUI := false
-	runWatchTextMode = func(_ *daemon.Config) error {
+	runWatchTextMode = func(_ *daemon.Config, _ string) error {
 		calledText = true
 		return nil
 	}
-	runWatchTUIMode = func(_ *daemon.Config) error {
+	runWatchTUIMode = func(_ *daemon.Config, _ string) error {
 		calledTUI = true
 		return nil
 	}
@@ -134,5 +134,42 @@ func TestWatchCommand_TextFallbackFlag(t *testing.T) {
 	}
 	if calledTUI {
 		t.Fatal("expected TUI mode handler to be skipped")
+	}
+}
+
+func TestStartCommand_PassesConfigPathToTUIMode(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cfg.yaml")
+	if err := os.WriteFile(cfgPath, []byte("daemon:\n  socket_path: \"/tmp/cw.sock\"\n"), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	origRunStartTUI := runStartTUIMode
+	origStartIsPlain := startIsPlain
+	t.Cleanup(func() {
+		runStartTUIMode = origRunStartTUI
+		startIsPlain = origStartIsPlain
+	})
+
+	calledTUI := false
+	var gotPath string
+	startIsPlain = func() bool { return false }
+	runStartTUIMode = func(_ *daemon.Config, cfgPath string) error {
+		calledTUI = true
+		gotPath = cfgPath
+		return nil
+	}
+
+	cmd := newStartCmd()
+	cmd.SetArgs([]string{"--config", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute start: %v", err)
+	}
+
+	if !calledTUI {
+		t.Fatal("expected TUI mode handler to run")
+	}
+	if gotPath != cfgPath {
+		t.Fatalf("expected cfgPath %q, got %q", cfgPath, gotPath)
 	}
 }

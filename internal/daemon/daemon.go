@@ -23,6 +23,7 @@ import (
 	"github.com/crabwise-ai/crabwise/internal/classify"
 	"github.com/crabwise-ai/crabwise/internal/discovery"
 	"github.com/crabwise-ai/crabwise/internal/ipc"
+	"github.com/crabwise-ai/crabwise/internal/notifier"
 	"github.com/crabwise-ai/crabwise/internal/openclawstate"
 	crabwiseOtel "github.com/crabwise-ai/crabwise/internal/otel"
 	"github.com/crabwise-ai/crabwise/internal/queue"
@@ -34,6 +35,7 @@ var Version = "dev"
 
 type Daemon struct {
 	cfg           *Config
+	cfgPath       string
 	store         *store.Store
 	queue         *queue.Queue
 	logger        *audit.Logger
@@ -46,6 +48,7 @@ type Daemon struct {
 	openclawState *openclawstate.Store
 	commandments  CommandmentsService
 	classifier    classify.Classifier
+	notifier      *notifier.Notifier
 	startTime     time.Time
 
 	hostname string
@@ -55,9 +58,10 @@ type Daemon struct {
 	cancel  context.CancelFunc
 }
 
-func New(cfg *Config) *Daemon {
+func New(cfg *Config, cfgPath string) *Daemon {
 	return &Daemon{
 		cfg:      cfg,
+		cfgPath:  cfgPath,
 		registry: discovery.NewRegistry(),
 		eventCh:  make(chan *audit.AuditEvent, 1000),
 	}
@@ -140,6 +144,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	d.logger.Start(ctx)
 	defer d.logger.Stop()
+
+	d.notifier = notifier.New(d.logger, notifierConfig(d.cfg.Notifications))
+	d.notifier.Start(ctx)
+	defer d.notifier.Stop()
 
 	if commandmentsInitErr != nil {
 		d.emitSystemEvent("commandments_load_failed", audit.OutcomeFailure, map[string]interface{}{"error": commandmentsInitErr.Error()})
@@ -446,6 +454,13 @@ func (d *Daemon) registerIPC() {
 	})
 
 	d.ipcServer.HandleSubscribe(func(params json.RawMessage, send func(string, interface{}) error, done <-chan struct{}) error {
+		var filter struct {
+			Outcome string `json:"outcome"`
+		}
+		if len(params) > 0 {
+			_ = json.Unmarshal(params, &filter)
+		}
+
 		ch := d.logger.Subscribe()
 		defer d.logger.Unsubscribe(ch)
 
@@ -456,6 +471,9 @@ func (d *Daemon) registerIPC() {
 			case evt, ok := <-ch:
 				if !ok {
 					return nil
+				}
+				if filter.Outcome != "" && string(evt.Outcome) != filter.Outcome {
+					continue
 				}
 				if err := send("audit.event", evt); err != nil {
 					return err
@@ -491,6 +509,18 @@ func (d *Daemon) removePID() {
 }
 
 func (d *Daemon) reloadRuntime() (int, error) {
+	var configReloadErr error
+
+	// Re-read config from disk for notification settings.
+	// cfgPath may be empty when started without --config; LoadConfig("") resolves the default path.
+	if newCfg, err := LoadConfig(d.cfgPath); err != nil {
+		log.Printf("daemon: config re-read error (keeping existing notifications): %v", err)
+		d.emitSystemEvent("config_reload_failed", audit.OutcomeFailure, map[string]interface{}{"error": err.Error()})
+		configReloadErr = fmt.Errorf("reload config: %w", err)
+	} else {
+		d.cfg.Notifications = newCfg.Notifications
+	}
+
 	newCommandments, cmdErr := NewCommandmentsService(d.cfg.Commandments.File, DefaultCommandmentsYAML)
 	if cmdErr != nil {
 		d.emitSystemEvent("commandments_reload_failed", audit.OutcomeFailure, map[string]interface{}{"error": cmdErr.Error()})
@@ -501,17 +531,38 @@ func (d *Daemon) reloadRuntime() (int, error) {
 		d.emitSystemEvent("tool_registry_reload_failed", audit.OutcomeFailure, map[string]interface{}{"error": regErr.Error()})
 	}
 
-	if cmdErr != nil || regErr != nil {
-		if cmdErr != nil && regErr != nil {
-			return 0, fmt.Errorf("runtime reload failed: %w", errors.Join(
-				fmt.Errorf("reload commandments: %w", cmdErr),
-				fmt.Errorf("reload tool registry: %w", regErr),
-			))
-		}
-		if cmdErr != nil {
-			return 0, fmt.Errorf("runtime reload failed: reload commandments: %w", cmdErr)
-		}
-		return 0, fmt.Errorf("runtime reload failed: reload tool registry: %w", regErr)
+	var reloadErr error
+	switch {
+	case configReloadErr != nil && cmdErr != nil && regErr != nil:
+		reloadErr = fmt.Errorf("runtime reload failed: %w", errors.Join(
+			configReloadErr,
+			fmt.Errorf("reload commandments: %w", cmdErr),
+			fmt.Errorf("reload tool registry: %w", regErr),
+		))
+	case configReloadErr != nil && cmdErr != nil:
+		reloadErr = fmt.Errorf("runtime reload failed: %w", errors.Join(
+			configReloadErr,
+			fmt.Errorf("reload commandments: %w", cmdErr),
+		))
+	case configReloadErr != nil && regErr != nil:
+		reloadErr = fmt.Errorf("runtime reload failed: %w", errors.Join(
+			configReloadErr,
+			fmt.Errorf("reload tool registry: %w", regErr),
+		))
+	case cmdErr != nil && regErr != nil:
+		reloadErr = fmt.Errorf("runtime reload failed: %w", errors.Join(
+			fmt.Errorf("reload commandments: %w", cmdErr),
+			fmt.Errorf("reload tool registry: %w", regErr),
+		))
+	case configReloadErr != nil:
+		reloadErr = fmt.Errorf("runtime reload failed: %w", configReloadErr)
+	case cmdErr != nil:
+		reloadErr = fmt.Errorf("runtime reload failed: reload commandments: %w", cmdErr)
+	case regErr != nil:
+		reloadErr = fmt.Errorf("runtime reload failed: reload tool registry: %w", regErr)
+	}
+	if reloadErr != nil && (cmdErr != nil || regErr != nil) {
+		return 0, reloadErr
 	}
 
 	d.commandments = newCommandments
@@ -537,7 +588,32 @@ func (d *Daemon) reloadRuntime() (int, error) {
 	d.emitSystemEvent("commandments_reload_ok", audit.OutcomeSuccess, map[string]interface{}{"rules_loaded": rulesLoaded})
 	d.emitSystemEvent("tool_registry_reload_ok", audit.OutcomeSuccess, map[string]interface{}{"version": newRegistry.Version()})
 
+	if configReloadErr == nil && d.notifier != nil {
+		d.notifier.Reload(context.Background(), notifierConfig(d.cfg.Notifications))
+		log.Printf("daemon: notifier reloaded")
+	}
+
+	if reloadErr != nil {
+		return rulesLoaded, reloadErr
+	}
+
 	return rulesLoaded, nil
+}
+
+func notifierConfig(n NotificationsConfig) notifier.Config {
+	return notifier.Config{
+		Desktop: notifier.DesktopConfig{
+			Enabled:     n.Desktop.Enabled,
+			MinInterval: n.Desktop.MinInterval.Duration(),
+		},
+		Webhook: notifier.WebhookConfig{
+			Enabled:       n.Webhook.Enabled,
+			URL:           n.Webhook.URL,
+			AuthHeaderEnv: n.Webhook.AuthHeaderEnv,
+			Format:        n.Webhook.Format,
+			MinInterval:   n.Webhook.MinInterval.Duration(),
+		},
+	}
 }
 
 func (d *Daemon) startOpenClaw(ctx context.Context) error {
