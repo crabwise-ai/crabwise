@@ -1,0 +1,106 @@
+version: "1"
+commandments:
+  - name: block-unapproved-models
+    description: Only allow pre-approved models
+    enforcement: block
+    priority: 100
+    match:
+      action_type: ai_request
+      model:
+        type: list
+        op: not_in
+        values:
+          - claude-sonnet-4-5-20250929
+          - claude-haiku-4-5-20251001
+          - gpt-4o
+          - gpt-4o-mini
+    message: "Model not on approved list"
+
+  - name: block-credential-access
+    description: Block all credential file reads
+    enforcement: block
+    priority: 100
+    match:
+      tool_category:
+        type: list
+        op: in
+        values: [file.read, file.search]
+      arguments:
+        type: glob
+        patterns:
+          - "**/.env**"
+          - "**/*.pem"
+          - "**/*.key"
+          - "**/*credentials*"
+          - "**/*secret*"
+    redact: true
+    message: "Credential access blocked by policy"
+
+  - name: block-destructive-commands
+    description: Block destructive shell commands
+    enforcement: block
+    priority: 100
+    match:
+      tool_category: shell
+      tool_effect: execute
+      arguments:
+        type: regex
+        pattern: "rm\\s+-rf|mkfs|dd\\s+if=|chmod\\s+777|chown\\s+-R"
+    message: "Destructive command blocked by policy"
+
+  - name: block-push-main
+    description: Block direct push to main/master
+    enforcement: block
+    priority: 95
+    match:
+      tool_category: shell
+      tool_effect: execute
+      arguments:
+        type: regex
+        pattern: "git\\s+push.*(?:main|master)"
+    message: "Direct push to main blocked — use a PR"
+
+  - name: block-force-push
+    description: Block all force pushes
+    enforcement: block
+    priority: 95
+    match:
+      tool_category: shell
+      tool_effect: execute
+      arguments:
+        type: regex
+        pattern: "git\\s+push\\s+.*--force"
+    message: "Force push blocked by policy"
+
+  - name: warn-high-token-usage
+    description: Warn when input tokens exceed 50k
+    enforcement: warn
+    priority: 80
+    match:
+      action_type: ai_request
+      input_tokens:
+        type: numeric
+        op: gte
+        value: 50000
+    message: "High token usage detected"
+
+  - name: warn-high-output-tokens
+    description: Warn when output tokens exceed 20k
+    enforcement: warn
+    priority: 80
+    match:
+      action_type: ai_request
+      output_tokens:
+        type: numeric
+        op: gte
+        value: 20000
+    message: "High output token usage detected"
+
+  - name: redact-all-ai-requests
+    description: Redact credentials from all AI request payloads
+    enforcement: warn
+    priority: 50
+    match:
+      action_type: ai_request
+    redact: true
+    message: "AI request redacted per compliance policy"

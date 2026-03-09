@@ -1,0 +1,93 @@
+version: "1"
+commandments:
+  - name: block-secret-commits
+    description: Block commits containing secret files
+    enforcement: block
+    priority: 100
+    match:
+      tool_category: shell
+      tool_effect: execute
+      arguments:
+        type: regex
+        pattern: "git\\s+add\\s+.*(\\.env|\\.pem|\\.key|credentials|secret)"
+    message: "Staging secret files blocked"
+
+  - name: block-force-push
+    description: Block force push to any remote
+    enforcement: block
+    priority: 100
+    match:
+      tool_category: shell
+      tool_effect: execute
+      arguments:
+        type: regex
+        pattern: "git\\s+push\\s+.*--force"
+    message: "Force push blocked — use --force-with-lease if needed"
+
+  - name: block-push-main
+    description: Block direct push to main/master
+    enforcement: block
+    priority: 95
+    match:
+      tool_category: shell
+      tool_effect: execute
+      arguments:
+        type: regex
+        pattern: "git\\s+push\\s+(?:origin\\s+)?(?:main|master)"
+    message: "Direct push to main blocked — use a PR"
+
+  - name: warn-ci-config-changes
+    description: Warn when CI/CD config files are modified
+    enforcement: warn
+    priority: 85
+    match:
+      tool_category:
+        type: list
+        op: in
+        values: [file.write, file.read]
+      arguments:
+        type: glob
+        patterns:
+          - "**/.github/workflows/**"
+          - "**/.gitlab-ci.yml"
+          - "**/.circleci/**"
+          - "**/Jenkinsfile"
+          - "**/.travis.yml"
+    message: "CI/CD config change detected — review carefully"
+
+  - name: protect-signing-keys
+    description: Block access to signing key files
+    enforcement: block
+    priority: 100
+    match:
+      tool_category:
+        type: list
+        op: in
+        values: [file.read, file.search]
+      arguments:
+        type: glob
+        patterns:
+          - "**/*.asc"
+          - "**/*.gpg"
+          - "**/*.key"
+          - "**/*.pem"
+    redact: true
+    message: "Signing key access blocked"
+
+  - name: warn-credential-access
+    description: Warn on credential file reads
+    enforcement: warn
+    priority: 80
+    match:
+      tool_category:
+        type: list
+        op: in
+        values: [file.read, file.search]
+      arguments:
+        type: glob
+        patterns:
+          - "**/.env**"
+          - "**/*credentials*"
+          - "**/*secret*"
+    redact: true
+    message: "Credential file access detected"

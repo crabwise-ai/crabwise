@@ -1,0 +1,93 @@
+version: "1"
+commandments:
+  - name: block-network-exfil
+    description: Block tools that could exfiltrate data over the network
+    enforcement: block
+    priority: 100
+    match:
+      tool_category: shell
+      tool_effect: execute
+      arguments:
+        type: regex
+        pattern: "curl\\s+.*-d|wget\\s+.*--post|nc\\s+-|ncat\\s+-|socat\\s+"
+    message: "Potential data exfiltration blocked"
+
+  - name: block-secret-piping
+    description: Block piping credential files to network tools
+    enforcement: block
+    priority: 100
+    match:
+      tool_category: shell
+      tool_effect: execute
+      arguments:
+        type: regex
+        pattern: "cat\\s+.*(\\.env|\\.pem|credentials|secret).*\\|.*(curl|wget|nc|ncat)"
+    message: "Piping secrets to network tools blocked"
+
+  - name: block-system-writes
+    description: Block writes to system directories
+    enforcement: block
+    priority: 100
+    match:
+      tool_category: shell
+      tool_effect: execute
+      arguments:
+        type: regex
+        pattern: "(?:>|tee)\\s+/etc/|mv\\s+.*/etc/|cp\\s+.*/etc/"
+    message: "Write to /etc blocked"
+
+  - name: block-package-installs
+    description: Block package manager installs
+    enforcement: block
+    priority: 95
+    match:
+      tool_category: shell
+      tool_effect: execute
+      arguments:
+        type: regex
+        pattern: "(?:apt|yum|dnf|pacman|brew)\\s+install|pip\\s+install|npm\\s+install\\s+-g"
+    message: "Package installation blocked — use approved packages only"
+
+  - name: warn-encoding-tools
+    description: Warn on base64/encoding that could obfuscate exfil
+    enforcement: warn
+    priority: 80
+    match:
+      tool_category: shell
+      tool_effect: execute
+      arguments:
+        type: regex
+        pattern: "base64|xxd|openssl\\s+enc|uuencode"
+    message: "Encoding tool usage detected — verify intent"
+
+  - name: warn-dns-tools
+    description: Warn on DNS lookup tools that could be used for DNS exfil
+    enforcement: warn
+    priority: 75
+    match:
+      tool_category: shell
+      tool_effect: execute
+      arguments:
+        type: regex
+        pattern: "dig\\s+|nslookup\\s+|host\\s+"
+    message: "DNS tool usage detected — verify no data in queries"
+
+  - name: block-reverse-shells
+    description: Block common reverse shell patterns
+    enforcement: block
+    priority: 100
+    match:
+      tool_category: shell
+      tool_effect: execute
+      arguments:
+        type: regex
+        pattern: "bash\\s+-i\\s+>&|/dev/tcp/|python.*socket.*connect|nc\\s+-e"
+    message: "Reverse shell pattern blocked"
+
+  - name: redact-all-commands
+    description: Redact credentials from all shell commands
+    enforcement: warn
+    priority: 50
+    match:
+      tool_category: shell
+    redact: true

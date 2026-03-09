@@ -1,0 +1,56 @@
+version: "1"
+commandments:
+  - name: no-destructive-commands
+    description: Block rm -rf, mkfs, dd and similar footguns
+    enforcement: block
+    priority: 100
+    match:
+      tool_category: shell
+      tool_effect: execute
+      arguments:
+        type: regex
+        pattern: "rm\\s+-rf|mkfs|dd\\s+if=|:\\s*>\\s*/dev/"
+    message: "Destructive command blocked"
+
+  - name: warn-credential-access
+    description: Warn when reading credential files
+    enforcement: warn
+    priority: 90
+    match:
+      tool_category:
+        type: list
+        op: in
+        values: [file.read, file.search]
+      arguments:
+        type: glob
+        patterns:
+          - "**/.env**"
+          - "**/*.pem"
+          - "**/*credentials*"
+          - "**/*.key"
+    redact: true
+    message: "Credential file access detected"
+
+  - name: warn-push-main
+    description: Warn before pushing to main or master
+    enforcement: warn
+    priority: 70
+    match:
+      tool_category: shell
+      tool_effect: execute
+      arguments:
+        type: regex
+        pattern: "git\\s+push.*(?:main|master)"
+    message: "Pushing to main branch"
+
+  - name: warn-force-push
+    description: Warn on any force push
+    enforcement: warn
+    priority: 80
+    match:
+      tool_category: shell
+      tool_effect: execute
+      arguments:
+        type: regex
+        pattern: "git\\s+push\\s+.*--force"
+    message: "Force push detected"

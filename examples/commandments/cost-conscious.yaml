@@ -1,0 +1,76 @@
+version: "1"
+commandments:
+  - name: block-expensive-models
+    description: Block models not on the budget-friendly list
+    enforcement: block
+    priority: 100
+    match:
+      action_type: ai_request
+      model:
+        type: list
+        op: not_in
+        values:
+          - gpt-4o-mini
+          - claude-haiku-4-5-20251001
+          - claude-sonnet-4-5-20250929
+    message: "Model not on approved budget list"
+
+  - name: warn-high-input-tokens
+    description: Warn when input tokens exceed 20k
+    enforcement: warn
+    priority: 85
+    match:
+      action_type: ai_request
+      input_tokens:
+        type: numeric
+        op: gte
+        value: 20000
+    message: "High input token count — consider trimming context"
+
+  - name: warn-high-output-tokens
+    description: Warn when output tokens exceed 10k
+    enforcement: warn
+    priority: 85
+    match:
+      action_type: ai_request
+      output_tokens:
+        type: numeric
+        op: gte
+        value: 10000
+    message: "High output token count"
+
+  - name: block-very-high-input-tokens
+    description: Block requests with input tokens exceeding 100k
+    enforcement: block
+    priority: 100
+    match:
+      action_type: ai_request
+      input_tokens:
+        type: numeric
+        op: gte
+        value: 100000
+    message: "Input token count exceeds 100k limit"
+
+  - name: block-very-high-output-tokens
+    description: Block requests with output tokens exceeding 50k
+    enforcement: block
+    priority: 100
+    match:
+      action_type: ai_request
+      output_tokens:
+        type: numeric
+        op: gte
+        value: 50000
+    message: "Output token count exceeds 50k limit"
+
+  - name: no-destructive-commands
+    description: Block destructive commands (baseline safety)
+    enforcement: block
+    priority: 100
+    match:
+      tool_category: shell
+      tool_effect: execute
+      arguments:
+        type: regex
+        pattern: "rm\\s+-rf|mkfs|dd\\s+if="
+    message: "Destructive command blocked"
