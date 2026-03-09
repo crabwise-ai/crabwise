@@ -458,7 +458,7 @@ func (d *Daemon) registerIPC() {
 			Outcome string `json:"outcome"`
 		}
 		if len(params) > 0 {
-			json.Unmarshal(params, &filter)
+			_ = json.Unmarshal(params, &filter)
 		}
 
 		ch := d.logger.Subscribe()

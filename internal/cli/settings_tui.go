@@ -196,7 +196,11 @@ func (m settingsModel) save() (tea.Model, tea.Cmd) {
 
 	dir := m.cfgPath[:strings.LastIndex(m.cfgPath, "/")]
 	if dir != "" {
-		os.MkdirAll(dir, 0700)
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			m.saveMsg = tui.StyleError.Render("mkdir: " + err.Error())
+			m.saveTick = 3
+			return m, tea.Tick(time.Second, func(time.Time) tea.Msg { return settingsSaveTickMsg{} })
+		}
 	}
 
 	if err := os.WriteFile(m.cfgPath, data, 0600); err != nil {
