@@ -34,12 +34,16 @@ Crabwise is a local-first daemon plus CLI for monitoring, audit, and policy enfo
 
 Built for solo developers, builders, and OpenClaw users. Current support is focused on Claude Code, Codex CLI, and OpenClaw-aware workflows.
 
-## Why Crabwise
+Write Commandments that agents cannot break.
+
+## Crabwise Features
 
 - See what your agents are doing in real time
 - Enforce local policies before risky actions or provider calls go through
+- Get Desktop or Discord notifications when an agent is blocked
 - Keep audit history and operational visibility on your own machine
 - Route local agents through a single control point with `crabwise wrap`
+- `crabwise service inject` service level agents like OpenClaw
 - Inspect status, activity, policies, and history from fast terminal UIs
 
 ## Quick Start
