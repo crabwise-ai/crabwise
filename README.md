@@ -59,14 +59,21 @@ Install Crabwise:
 curl -sSfL https://raw.githubusercontent.com/crabwise-ai/crabwise/main/install.sh | bash
 ```
 
-Initialize config and generate the local CA:
+Initialize the config, commandments, tool registry, proxy mappings, and local CA:
 
 ```bash
 crabwise init
-crabwise cert trust --copy
 ```
 
-Start the daemon:
+Trust the Crabwise CA so local clients can use the proxy:
+
+```bash
+crabwise cert trust
+# run the printed OS trust command
+# or use: crabwise cert trust --run
+```
+
+Start the daemon in the foreground and leave it running:
 
 ```bash
 crabwise start
@@ -88,6 +95,8 @@ For service-managed OpenClaw, inject Crabwise into the service instead:
 sudo crabwise service inject --agent openclaw --restart
 ```
 
+If your OpenClaw Gateway runs as a user service, use `--scope user` and do not use `sudo`.
+
 In another terminal:
 
 ```bash
@@ -97,7 +106,7 @@ crabwise watch
 crabwise audit
 ```
 
-Stop the daemon when you are done:
+Stop the daemon from another terminal when you are done:
 
 ```bash
 crabwise stop
@@ -135,7 +144,17 @@ Use `crabwise wrap -- <command>` to route a local agent, script, or tool runner 
 
 ### OpenClaw support
 
-When enabled, Crabwise connects to a local OpenClaw Gateway and correlates activity with OpenClaw sessions. Current enforcement is focused on provider-side governance through the Crabwise proxy.
+OpenClaw support is disabled by default. Enable it in `~/.config/crabwise/config.yaml`, then start Crabwise so it can connect to the local OpenClaw Gateway and correlate activity with OpenClaw sessions.
+
+```yaml
+adapters:
+  openclaw:
+    enabled: true
+```
+
+If your gateway requires authentication, export the token from `adapters.openclaw.api_token_env` before starting Crabwise. By default that environment variable is `OPENCLAW_API_TOKEN`.
+
+Current enforcement is focused on provider-side governance through the Crabwise proxy. Use `crabwise wrap -- openclaw gateway` for a locally launched gateway, or `crabwise service inject --agent openclaw` for a service-managed gateway.
 
 ## Notes
 
