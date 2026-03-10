@@ -48,7 +48,7 @@ Write Commandments that agents cannot break.
 - Get Desktop or Discord notifications when an agent is blocked
 - Keep audit history and operational visibility on your own machine
 - Route local agents through a single control point with `crabwise wrap`
-- `crabwise service inject` service level agents like OpenClaw
+- Inject service-level agents like OpenClaw with `crabwise service inject --agent openclaw`
 - Inspect status, activity, policies, and history from fast terminal UIs
 
 ## Quick Start
@@ -80,6 +80,12 @@ crabwise wrap -- codex
 crabwise wrap -- claude
 # or
 crabwise wrap -- openclaw gateway
+```
+
+For service-managed OpenClaw, inject Crabwise into the service instead:
+
+```bash
+sudo crabwise service inject --agent openclaw --restart
 ```
 
 In another terminal:
