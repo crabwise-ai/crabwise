@@ -15,6 +15,7 @@ Built for solo developers, builders, and OpenClaw users. Currently supports Clau
 - Terminal UIs for status, agents, live activity, audit history, and policies
 - Optional OpenClaw attribution and optional OpenTelemetry export
 
+
 ## Quick Start
 
 Install Crabwise:
@@ -60,6 +61,12 @@ When you are done:
 ```bash
 crabwise stop
 ```
+
+## How Requests Flow
+
+![How Crabwise Works](https://github.com/crabwise-ai/public/raw/main/crabwise-howitworks.gif)
+
+Crabwise sits between the wrapped agent and the model provider. Requests and responses flow through the local proxy, policies are evaluated locally, and audit history stays on your machine.
 
 ## Main Features
 
