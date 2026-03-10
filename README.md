@@ -64,7 +64,7 @@ crabwise stop
 
 ## How Requests Flow
 
-![How Crabwise Works](https://github.com/crabwise-ai/public/raw/main/crabwise-howitworks.gif)
+![How Crabwise Works](assets/crabwise-howitworks.gif)
 
 Crabwise sits between the wrapped agent and the model provider. Requests and responses flow through the local proxy, policies are evaluated locally, and audit history stays on your machine.
 
