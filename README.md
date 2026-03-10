@@ -1,20 +1,51 @@
-# Crabwise — Infrastructure-level control for your AI agents
+<div align="center">
 
-Local-first monitoring, audit, and commandment(policy) enforcement for AI agents.
+<a href="https://github.com/crabwise-ai/crabwise">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme-logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/readme-logo-light.svg">
+    <img src="assets/readme-logo-dark.svg" alt="Crabwise" width="520">
+  </picture>
+</a>
 
-Crabwise runs as a daemon plus CLI on your machine. It watches local agent activity, can proxy provider traffic for enforcement, stores a hash-chained audit trail in SQLite, and gives you a fast way to see what your agents are doing without sending that data to a hosted control plane.
 
-Built for solo developers, builders, and OpenClaw users. Currently supports Claude Code, Codex CLI, and OpenClaw. (More coming soon)
+**[PLACEHOLDER: Add Crabwise logo / wordmark here]**
 
-## What You Get
+# Crabwise
 
-- Local monitoring for Claude Code and Codex CLI sessions
-- Proxy-based governance for wrapped agents and provider calls
-- Declarative policy rules ("commandments") for block and warn behavior
-- Hash-chained audit history with live watch and historical queries
-- Terminal UIs for status, agents, live activity, audit history, and policies
-- Optional OpenClaw attribution and optional OpenTelemetry export
+### The local control plane for your AI agents
 
+Observe, govern, and audit what Claude Code, Codex CLI, and OpenClaw do on your machine.
+
+<p>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-orange.svg" alt="License"></a>
+  <a href="https://github.com/crabwise-ai/crabwise/releases"><img src="https://img.shields.io/github/v/release/crabwise-ai/crabwise?label=release" alt="Release"></a>
+  <img src="https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go&logoColor=white" alt="Go 1.25+">
+  <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Linux-555" alt="Platforms">
+  <a href="https://x.com/crabwise_ai"><img src="https://img.shields.io/badge/%40crabwise__ai-000000?logo=x&logoColor=white" alt="X"></a>
+</p>
+
+<p>
+  <a href="#quick-start"><strong>Quick Start</strong></a>
+  ·
+  <a href="https://github.com/crabwise-ai/crabwise/releases"><strong>Releases</strong></a>
+  ·
+  <strong>Docs (coming soon)</strong>
+</p>
+
+</div>
+
+Crabwise is a local-first daemon plus CLI for monitoring, audit, and policy enforcement around AI agents. It watches agent activity, can proxy provider traffic for enforcement, stores a hash-chained audit trail in SQLite, and keeps the control plane on your machine instead of sending it to a hosted service.
+
+Built for solo developers, builders, and OpenClaw users. Current support is focused on Claude Code, Codex CLI, and OpenClaw-aware workflows.
+
+## Why Crabwise
+
+- See what your agents are doing in real time
+- Enforce local policies before risky actions or provider calls go through
+- Keep audit history and operational visibility on your own machine
+- Route local agents through a single control point with `crabwise wrap`
+- Inspect status, activity, policies, and history from fast terminal UIs
 
 ## Quick Start
 
@@ -47,7 +78,7 @@ crabwise wrap -- claude
 crabwise wrap -- openclaw gateway
 ```
 
-In another terminal, inspect what is happening:
+In another terminal:
 
 ```bash
 crabwise status
@@ -56,7 +87,7 @@ crabwise watch
 crabwise audit
 ```
 
-When you are done:
+Stop the daemon when you are done:
 
 ```bash
 crabwise stop
@@ -76,17 +107,17 @@ Crabwise records normalized agent and proxy events in a local SQLite database wi
 
 ### Policy enforcement
 
-Crabwise can evaluate requests before they reach the model provider and evaluate tool-use payloads in supported JSON responses before they reach the agent. Policies are defined in YAML and support both `warn` and `block` outcomes.
+Crabwise can evaluate requests before they reach the model provider and evaluate supported tool-use payloads before they reach the agent. Policies are defined in YAML and support both `warn` and `block` outcomes.
 
 ### Fast terminal workflows
 
 The CLI is built for day-to-day use:
 
-- `crabwise status` shows daemon and proxy health
-- `crabwise agents` shows discovered agents
-- `crabwise watch` streams activity live
-- `crabwise audit` queries historical events
-- `crabwise commandments list` shows active policy rules
+- `crabwise status` for daemon and proxy health
+- `crabwise agents` for discovered agent sessions
+- `crabwise watch` for live activity
+- `crabwise audit` for historical events
+- `crabwise commandments list` for active policies
 
 ### Works with builders
 
@@ -95,14 +126,6 @@ Use `crabwise wrap -- <command>` to route a local agent, script, or tool runner 
 ### OpenClaw support
 
 When enabled, Crabwise connects to a local OpenClaw Gateway and correlates activity with OpenClaw sessions. Current enforcement is focused on provider-side governance through the Crabwise proxy.
-
-## How It Works
-
-1. `crabwise init` writes default config, policy, and proxy mapping files under `~/.config/crabwise/`.
-2. `crabwise start` runs the daemon, log watcher, local IPC socket, and proxy.
-3. Crabwise watches supported local agent logs and records events.
-4. Wrapped agents send provider traffic through the Crabwise proxy for monitoring and enforcement.
-5. You inspect activity with `status`, `agents`, `watch`, `audit`, and `commandments`.
 
 ## Notes
 
