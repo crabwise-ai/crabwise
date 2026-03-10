@@ -504,5 +504,9 @@ func renderStartBanner(version string) string {
 }
 
 func cfgPath(path string) string {
-	return strings.ReplaceAll(path, "\n", "")
+	path = strings.ReplaceAll(path, "\n", "")
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		path = strings.Replace(path, home, "~", 1)
+	}
+	return path
 }
