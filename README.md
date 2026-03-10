@@ -36,6 +36,11 @@ Built for solo developers, builders, and OpenClaw users. Current support is focu
 
 Write Commandments that agents cannot break.
 
+<p align="center">
+  <img src="public/crabwise-terminals.png" alt="Crabwise terminals screenshot" width="700">
+</p>
+
+
 ## Crabwise Features
 
 - See what your agents are doing in real time
