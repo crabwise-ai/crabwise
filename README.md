@@ -1,4 +1,4 @@
-# Crabwise
+# Crabwise — Infrastructure-level control for your AI agents
 
 Local-first monitoring, audit, and commandment(policy) enforcement for AI agents.
 
