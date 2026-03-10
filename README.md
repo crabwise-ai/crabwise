@@ -2,9 +2,9 @@
 
 <a href="https://crabwise.ai">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="public/readme-logo-dark.svg" width="200">
-    <source media="(prefers-color-scheme: light)" srcset="public/readme-logo-light.svg" width="200">
-    <img src="public/readme-logo-dark.svg" alt="Crabwise" width="200">
+    <source media="(prefers-color-scheme: dark)" srcset="public/readme-logo-dark.svg" width="240">
+    <source media="(prefers-color-scheme: light)" srcset="public/readme-logo-light.svg" width="240">
+    <img src="public/readme-logo-dark.svg" alt="Crabwise" width="240">
   </picture>
 </a>
 
