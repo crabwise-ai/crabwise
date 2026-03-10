@@ -1,19 +1,14 @@
 <div align="center">
 
-<a href="https://github.com/crabwise-ai/crabwise">
+<a href="https://crabwise.ai">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/readme-logo-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="assets/readme-logo-light.svg">
-    <img src="assets/readme-logo-dark.svg" alt="Crabwise" width="520">
+    <source media="(prefers-color-scheme: dark)" srcset="public/readme-logo-dark.svg" width="520">
+    <source media="(prefers-color-scheme: light)" srcset="public/readme-logo-light.svg" width="520">
+    <img src="public/readme-logo-dark.svg" alt="Crabwise" width="520">
   </picture>
 </a>
 
-
-**[PLACEHOLDER: Add Crabwise logo / wordmark here]**
-
-# Crabwise
-
-### The local control plane for your AI agents
+### Crabwise / The local control plane for your AI agents
 
 Observe, govern, and audit what Claude Code, Codex CLI, and OpenClaw do on your machine.
 
@@ -95,7 +90,7 @@ crabwise stop
 
 ## How Requests Flow
 
-![How Crabwise Works](assets/crabwise-howitworks.gif)
+![How Crabwise Works](public/crabwise-howitworks.gif)
 
 Crabwise sits between the wrapped agent and the model provider. Requests and responses flow through the local proxy, policies are evaluated locally, and audit history stays on your machine.
 
