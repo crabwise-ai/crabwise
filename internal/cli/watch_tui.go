@@ -468,7 +468,7 @@ func (m *watchModel) recordAuditEvent(evt audit.AuditEvent) {
 	m.triggersLastMinute = len(m.triggerTimes)
 
 	ts := tui.FormatTimestamp(when)
-	args := tui.Truncate(evt.Arguments, 50)
+	args := tui.Truncate(shortenHome(evt.Arguments), 50)
 	agentLabel := compactAgentLabel(evt.AgentID, evt.SessionID)
 
 	// Build styled line parts

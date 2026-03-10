@@ -320,11 +320,11 @@ func (m startTUIModel) View() string {
 	b.WriteString("\n\n")
 	fmt.Fprintf(&b, "  %s %s\n",
 		tui.StyleMuted.Render("Socket:"),
-		tui.StyleBody.Render(cfgPath(m.cfg.Daemon.SocketPath)),
+		tui.StyleBody.Render(shortenHome(m.cfg.Daemon.SocketPath)),
 	)
 	fmt.Fprintf(&b, "  %s %s\n",
 		tui.StyleMuted.Render("DB:"),
-		tui.StyleBody.Render(cfgPath(m.cfg.Daemon.DBPath)),
+		tui.StyleBody.Render(shortenHome(m.cfg.Daemon.DBPath)),
 	)
 	fmt.Fprintf(&b, "  %s %s\n",
 		tui.StyleMuted.Render("PID:"),
@@ -503,7 +503,7 @@ func renderStartBanner(version string) string {
 	return strings.Join(lines, "\n")
 }
 
-func cfgPath(path string) string {
+func shortenHome(path string) string {
 	path = strings.ReplaceAll(path, "\n", "")
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		path = strings.Replace(path, home, "~", 1)
