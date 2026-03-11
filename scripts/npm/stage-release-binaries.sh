@@ -95,6 +95,7 @@ stage_one() {
 
   mkdir -p "$extract_dir"
   tar -xzf "$tar_path" -C "$extract_dir" "$entry"
+  mkdir -p "$(dirname "$dest")"
   cp "${extract_dir}/${entry}" "$dest"
   chmod +x "$dest"
 }
