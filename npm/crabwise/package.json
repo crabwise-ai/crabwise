@@ -1,0 +1,20 @@
+{
+  "name": "crabwise",
+  "version": "0.0.0-dev",
+  "description": "Crabwise CLI — local-first AI agent monitoring daemon",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/crabwise-ai/crabwise.git"
+  },
+  "private": false,
+  "bin": {
+    "crabwise": "bin/crabwise.js"
+  },
+  "optionalDependencies": {
+    "@crabwise/darwin-x64": "0.0.0-dev",
+    "@crabwise/darwin-arm64": "0.0.0-dev",
+    "@crabwise/linux-x64": "0.0.0-dev",
+    "@crabwise/linux-arm64": "0.0.0-dev"
+  }
+}

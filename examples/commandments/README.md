@@ -9,6 +9,8 @@ cp examples/commandments/<file>.yaml ~/.config/crabwise/commandments.yaml
 crabwise commandments reload   # if daemon is running
 ```
 
+No global install: use `npx crabwise@latest commandments reload`.
+
 ## Files
 
 | File | Scenario | Summary |

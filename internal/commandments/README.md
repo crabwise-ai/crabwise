@@ -246,7 +246,7 @@ For block enforcement to work:
 3. The agent must connect to a domain in your `providers` config (e.g. `api.openai.com`)
 4. At least one commandment must use `enforcement: block`
 
-The default install satisfies (1) and (4) out of the box. Run `crabwise init` to generate the CA certificate, then use `crabwise wrap -- codex` to route Codex traffic through the proxy.
+The npm/npx path satisfies (1) and (4) out of the box. Run `crabwise init` to generate the CA certificate, then use `crabwise wrap -- codex` to route Codex traffic through the proxy.
 
 > **Note:** Block rules on `tool_category: shell` / `tool_effect: execute` only trigger when those tool calls appear in the AI API request body (e.g. the agent sending prior tool results back to the model). They do **not** block the local execution of shell commands — that is a client-side concern (see the agent's own approval policy and sandbox settings).
 

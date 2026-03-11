@@ -37,7 +37,7 @@ commandments:
     message: "Write to /etc blocked"
 
   - name: block-package-installs
-    description: Block package manager installs
+    description: Block package installs, including npm/npx onboarding flows
     enforcement: block
     priority: 95
     match:
@@ -45,8 +45,8 @@ commandments:
       tool_effect: execute
       arguments:
         type: regex
-        pattern: "(?:apt|yum|dnf|pacman|brew)\\s+install|pip\\s+install|npm\\s+install\\s+-g"
-    message: "Package installation blocked — use approved packages only"
+        pattern: "(?:apt|yum|dnf|pacman|brew)\\s+install|pip\\s+install|npm\\s+(?:install|i|ci|exec)\\b|npx\\b"
+    message: "Package install blocked, incl npm/npx flows — use approved packages only"
 
   - name: warn-encoding-tools
     description: Warn on base64/encoding that could obfuscate exfil
