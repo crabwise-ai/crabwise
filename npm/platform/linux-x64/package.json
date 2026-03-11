@@ -1,6 +1,12 @@
 {
   "name": "@crabwise/linux-x64",
   "version": "0.0.0-dev",
+  "description": "Crabwise CLI binary for Linux x64",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/crabwise-ai/crabwise.git"
+  },
   "private": false,
   "scripts": {
     "prepack": "bash ../../../scripts/npm/verify-staged-binaries.sh",

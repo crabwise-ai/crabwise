@@ -66,6 +66,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 20
+          registry-url: https://registry.npmjs.org
       - name: Set npm package versions from tag
         run: make npm-set-version VERSION=${GITHUB_REF_NAME#v}
       - name: Stage release binaries

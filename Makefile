@@ -30,7 +30,8 @@ npm-set-version:
 	bash scripts/npm/set-version.sh "$(VERSION)"
 
 npm-stage:
-	bash scripts/npm/stage-release-binaries.sh $(TAG)
+	@test -n "$(TAG)" || (echo "TAG is required" >&2; exit 1)
+	bash scripts/npm/stage-release-binaries.sh "$(TAG)"
 
 npm-verify-binaries:
 	bash scripts/npm/verify-staged-binaries.sh
