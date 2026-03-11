@@ -53,11 +53,25 @@ Write Commandments that agents cannot break.
 
 ## Quick Start
 
-Install Crabwise:
+Quick try (no install):
+
+```bash
+npx crabwise@latest version --plain
+```
+
+Daily use:
+
+```bash
+npm i -g crabwise
+```
+
+Fallback (install script):
 
 ```bash
 curl -sSfL https://raw.githubusercontent.com/crabwise-ai/crabwise/main/install.sh | bash
 ```
+
+Commands below are shown as `crabwise`. If not globally installed, prefix with `npx crabwise@latest`.
 
 Initialize the config, commandments, tool registry, proxy mappings, and local CA:
 

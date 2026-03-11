@@ -1,0 +1,18 @@
+{
+  "name": "@crabwise/linux-x64",
+  "version": "0.0.0-dev",
+  "private": false,
+  "scripts": {
+    "prepack": "bash ../../../scripts/npm/verify-staged-binaries.sh",
+    "prepublishOnly": "bash ../../../scripts/npm/verify-staged-binaries.sh"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/crabwise"
+  ]
+}
